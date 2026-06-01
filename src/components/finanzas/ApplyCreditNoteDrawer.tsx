@@ -10,6 +10,12 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { ChevronDown, ChevronRight, FileCheck2, FileUp, Loader2, Package, Truck, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import CfdiAlreadyRegisteredBanner from '@/components/finanzas/cfdi-import/CfdiAlreadyRegisteredBanner'
+import {
+  creditNoteAllocatedMessage,
+  isCreditNoteAlreadyRegistered,
+  type CreditNoteDuplicates,
+} from '@/lib/ap/cfdiImportReview'
 import type { ParsedCfdi, SupplierInvoice } from '@/types/finance'
 
 type InvoiceItem = {
@@ -75,6 +81,14 @@ export default function ApplyCreditNoteDrawer({
   const [cfdiFile, setCfdiFile]       = useState<File | null>(null)
   const [parsingCfdi, setParsingCfdi] = useState(false)
   const [skipCfdi, setSkipCfdi]       = useState(false)
+  const [creditNoteDuplicateReview, setCreditNoteDuplicateReview] = useState<CreditNoteDuplicates | null>(null)
+
+  const creditNoteAlreadyRegistered = creditNoteDuplicateReview
+    ? isCreditNoteAlreadyRegistered(creditNoteDuplicateReview)
+    : false
+  const creditNoteAllocatedMsg = creditNoteDuplicateReview
+    ? creditNoteAllocatedMessage(creditNoteDuplicateReview)
+    : null
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState<string | null>(null)
@@ -117,6 +131,7 @@ export default function ApplyCreditNoteDrawer({
     setParsedCfdi(null)
     setCfdiFile(null)
     setSkipCfdi(false)
+    setCreditNoteDuplicateReview(null)
     void fetchInvoices()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -126,6 +141,8 @@ export default function ApplyCreditNoteDrawer({
     try {
       const form = new FormData()
       form.append('xml_file', file)
+      if (plantId) form.append('plant_id', plantId)
+      if (supplierGroupId) form.append('supplier_group_id', supplierGroupId)
       const res = await fetch('/api/ap/cfdi/parse', { method: 'POST', body: form })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'No se pudo leer el CFDI'); return }
@@ -141,6 +158,22 @@ export default function ApplyCreditNoteDrawer({
         toast.error(`Este CFDI es de tipo ${cfdi.tipo_comprobante}, no de tipo Egreso (E). Solo se aceptan notas de crédito.`)
         return
       }
+
+      const ncDups: CreditNoteDuplicates = {
+        by_uuid: data.duplicate_credit_note
+          ? { id: data.duplicate_credit_note.id, document_number: data.duplicate_credit_note.credit_number }
+          : null,
+        by_folio: data.duplicate_credit_note_folio
+          ? {
+              id: data.duplicate_credit_note_folio.id,
+              document_number: data.duplicate_credit_note_folio.credit_number,
+            }
+          : null,
+      }
+      setCreditNoteDuplicateReview(ncDups)
+      const allocatedMsg = creditNoteAllocatedMessage(ncDups)
+      if (allocatedMsg) toast.message(allocatedMsg)
+
       setParsedCfdi(cfdi)
       setCfdiFile(file)
 
@@ -258,7 +291,8 @@ export default function ApplyCreditNoteDrawer({
     creditDate &&
     selected.size > 0 &&
     Math.abs(remaining) <= 0.01 &&
-    !submitting
+    !submitting &&
+    !creditNoteAlreadyRegistered
 
   const handleSubmit = async () => {
     if (!supplierGroupId || !plantId || !canSubmit) return
@@ -339,6 +373,9 @@ export default function ApplyCreditNoteDrawer({
                 </span>
               )}
             </h3>
+            {creditNoteAllocatedMsg && (
+              <CfdiAlreadyRegisteredBanner message={creditNoteAllocatedMsg} />
+            )}
             {parsedCfdi ? (
               <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-3 space-y-1">
                 <div className="flex items-start justify-between">

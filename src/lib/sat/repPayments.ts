@@ -102,6 +102,7 @@ export async function buildRepPaymentPreview(
 
   const invByUuid = await loadInvoicesByCfdiUuids(supabase, doctoUuids)
   const rows: RepPaymentPreviewRow[] = []
+  const batchPaymentKeys = new Set<string>()
   const supplierCtxCache = new Map<
     string,
     Awaited<ReturnType<typeof loadSupplierContextByEmisorRfc>>
@@ -180,10 +181,30 @@ export async function buildRepPaymentPreview(
         continue
       }
 
-      if (appliedSet.has(`${normalizeCfdiUuid(d.uuid)}|${normalizeCfdiUuid(d.docto_relacionado_uuid)}|${d.num_parcialidad}`)) {
+      const paymentKey = `${normalizeCfdiUuid(d.uuid)}|${normalizeCfdiUuid(d.docto_relacionado_uuid)}|${d.num_parcialidad}`
+      if (batchPaymentKeys.has(paymentKey)) {
         rows.push(
           await enrichRow(
-            { ...base, status: 'already_applied', message: 'Pago REP ya registrado' },
+            {
+              ...base,
+              status: 'already_applied',
+              message: 'Pago repetido en el archivo — omitido',
+            },
+            cfdi,
+          ),
+        )
+        continue
+      }
+      batchPaymentKeys.add(paymentKey)
+
+      if (appliedSet.has(paymentKey)) {
+        rows.push(
+          await enrichRow(
+            {
+              ...base,
+              status: 'already_applied',
+              message: 'Pago ya registrado en el sistema',
+            },
             cfdi,
           ),
         )

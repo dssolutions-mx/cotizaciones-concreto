@@ -3,8 +3,8 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { parseCfdiXml, CfdiParseError } from '@/lib/sat/cfdiParser'
 import { fetchCompanyRfc, compareReceptorRfc } from '@/lib/ap/companyRfc'
 import { extractXmlFromFormData } from '@/lib/sat/extractXmlFromUpload'
-import { normalizeCfdiUuid } from '@/lib/sat/normalizeCfdiUuid'
-import { invoiceNumberFromCfdi, markUploadDuplicates } from '@/lib/ap/bulkCfdiValidation'
+import { markUploadDuplicates } from '@/lib/ap/bulkCfdiValidation'
+import { lookupSupplierInvoiceDuplicates } from '@/lib/ap/cfdiImportReview'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS']
 
@@ -69,26 +69,12 @@ export async function POST(request: NextRequest) {
           .eq('is_active', true)
           .maybeSingle()
 
-        const normalizedUuid = normalizeCfdiUuid(cfdi.uuid) ?? cfdi.uuid
-
-        const { data: existingByUuid } = await supabase
-          .from('supplier_invoices')
-          .select('id, invoice_number')
-          .eq('cfdi_uuid', normalizedUuid)
-          .maybeSingle()
-
-        const invoiceNumber = invoiceNumberFromCfdi(cfdi)
-        let existingByFolio: { id: string; invoice_number: string } | null = null
-        if (matchingGroup?.id && plantId && invoiceNumber) {
-          const { data: existingFolio } = await supabase
-            .from('supplier_invoices')
-            .select('id, invoice_number')
-            .eq('supplier_group_id', matchingGroup.id)
-            .eq('plant_id', plantId)
-            .eq('invoice_number', invoiceNumber)
-            .maybeSingle()
-          existingByFolio = existingFolio ?? null
-        }
+        const invoiceDups = await lookupSupplierInvoiceDuplicates(supabase, {
+          cfdiUuid: cfdi.uuid,
+          supplierGroupId: matchingGroup?.id ?? null,
+          plantId,
+          cfdi,
+        })
 
         parsed.push({
           id: cfdi.uuid,
@@ -97,8 +83,12 @@ export async function POST(request: NextRequest) {
           receptor_match,
           company_rfc: companyRfc || null,
           supplier_group: matchingGroup ?? null,
-          duplicate_invoice: existingByUuid ?? null,
-          duplicate_invoice_folio: existingByFolio,
+          duplicate_invoice: invoiceDups.by_uuid
+            ? { id: invoiceDups.by_uuid.id, invoice_number: invoiceDups.by_uuid.document_number }
+            : null,
+          duplicate_invoice_folio: invoiceDups.by_folio
+            ? { id: invoiceDups.by_folio.id, invoice_number: invoiceDups.by_folio.document_number }
+            : null,
           duplicate_cfdi_in_upload: false,
           duplicate_folio_in_upload: false,
         })

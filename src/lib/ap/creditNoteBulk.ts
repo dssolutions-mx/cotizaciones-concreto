@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CfdiMatchDiagnostics, ParsedCfdi } from '@/types/finance'
 import { cfdiUuidsEqual } from '@/lib/sat/normalizeCfdiUuid'
+import { markUploadDuplicates } from '@/lib/ap/bulkCfdiValidation'
+import { lookupCreditNoteDuplicates } from '@/lib/ap/cfdiImportReview'
 import {
   buildNcMatchDiagnostics,
   loadOpenInvoicesForSupplierGroup,
@@ -84,6 +86,11 @@ export async function buildCreditNoteBulkPreview(
   const rows: CreditNoteBulkPreviewRow[] = []
   const openInvoicesCache = new Map<string, Awaited<ReturnType<typeof loadOpenInvoicesForSupplierGroup>>>()
 
+  const withUploadFlags = markUploadDuplicates(
+    items.map(i => ({ id: i.cfdi.uuid, cfdi: i.cfdi, file_name: i.file_name })),
+  )
+  const uploadFlagByUuid = new Map(withUploadFlags.map(i => [i.id, i]))
+
   async function openForGroup(groupId: string) {
     if (!openInvoicesCache.has(groupId)) {
       openInvoicesCache.set(
@@ -95,6 +102,7 @@ export async function buildCreditNoteBulkPreview(
   }
 
   for (const { file_name, cfdi } of items) {
+    const uploadFlags = uploadFlagByUuid.get(cfdi.uuid)
     const folio =
       [cfdi.serie, cfdi.folio].filter(Boolean).join('-') || cfdi.uuid.slice(0, 8)
     const relatedRaw = relatedUuidsFromCfdi(cfdi)
@@ -154,14 +162,11 @@ export async function buildCreditNoteBulkPreview(
       continue
     }
 
-    const { data: dup } = await supabase
-      .from('invoice_credit_notes')
-      .select('id, credit_number')
-      .eq('cfdi_uuid', cfdi.uuid)
-      .maybeSingle()
-    if (dup) {
+    if (uploadFlags?.duplicate_cfdi_in_upload || uploadFlags?.duplicate_folio_in_upload) {
       pushWithDiagnostics(base, 'duplicate', {
-        message: `Ya registrada como NC ${dup.credit_number ?? dup.id}`,
+        message: uploadFlags.duplicate_cfdi_in_upload
+          ? 'CFDI repetido en el archivo — omitido'
+          : 'Folio repetido en el archivo — omitido',
       })
       continue
     }
@@ -182,6 +187,28 @@ export async function buildCreditNoteBulkPreview(
 
     base.supplier_group_id = matchingGroup.id
     base.supplier_group_name = matchingGroup.name
+
+    const ncDups = await lookupCreditNoteDuplicates(supabase, {
+      cfdiUuid: cfdi.uuid,
+      supplierGroupId: matchingGroup.id,
+      plantId: plantFilter,
+      creditNumber: folio,
+    })
+    if (ncDups.by_uuid) {
+      pushWithDiagnostics(base, 'duplicate', {
+        supplierGroupName: matchingGroup.name,
+        message: `Ya registrada en sistema (${ncDups.by_uuid.document_number})`,
+      })
+      continue
+    }
+    if (ncDups.by_folio) {
+      pushWithDiagnostics(base, 'duplicate', {
+        supplierGroupName: matchingGroup.name,
+        message: `Folio NC ya registrado (${ncDups.by_folio.document_number})`,
+      })
+      continue
+    }
+
     const openInvoices = await openForGroup(matchingGroup.id)
 
     const relUuids = cfdi.cfdi_relacionados.map((r) => r.uuid.toLowerCase())

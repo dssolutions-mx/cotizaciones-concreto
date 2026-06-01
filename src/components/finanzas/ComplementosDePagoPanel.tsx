@@ -33,6 +33,7 @@ import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import ImportReviewToolbar, { type ImportReviewFilter } from '@/components/finanzas/cfdi-import/ImportReviewToolbar'
 import MatchDiagnosticsPanel from '@/components/finanzas/cfdi-import/MatchDiagnosticsPanel'
 import { UuidChip } from '@/components/finanzas/cfdi-import/UuidChip'
+import ImportAllocatedSummary from '@/components/finanzas/cfdi-import/ImportAllocatedSummary'
 
 const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
 
@@ -42,7 +43,7 @@ export const REP_STATUS_LABELS: Record<RepPaymentPreviewRow['status'], string> =
   ambiguous_match: 'Elegir factura',
   sat_without_invoice: 'SAT sin CxP',
   receptor_mismatch: 'RFC receptor',
-  already_applied: 'Ya aplicado',
+  already_applied: 'Ya registrado',
   invoice_not_found: 'Sin factura',
   no_payable: 'Sin CxP (se crea al aplicar)',
   overpayment: 'Excede saldo',
@@ -292,13 +293,19 @@ export default function ComplementosDePagoPanel({ onApplied, compact = false, cl
 
   const applicableRows = preview.filter((r) => rowIsApplicable(r))
 
+  const allocatedRows = useMemo(
+    () => preview.filter(r => r.status === 'already_applied'),
+    [preview],
+  )
+
   const counts = useMemo(
     () => ({
       all: preview.length,
       ready: preview.filter((r) => rowIsApplicable(r)).length,
       attention: preview.filter((r) => needsAttention(r, ambiguousPick)).length,
+      allocated: allocatedRows.length,
     }),
-    [preview, ambiguousPick],
+    [preview, ambiguousPick, allocatedRows],
   )
 
   const filtered = useMemo(() => {
@@ -350,12 +357,17 @@ export default function ComplementosDePagoPanel({ onApplied, compact = false, cl
         .filter((r) => r.status === 'ready' || r.status === 'match_folio_confirm')
         .map((r) => repRowKey(r))
       setSelected(new Set(readyKeys))
+      const allocN = rows.filter(r => r.status === 'already_applied').length
       const attn = rows.filter((r) => needsAttention(r, {})).length
       if (attn > 0) {
         setFilter('attention')
-        toast.info(`${readyKeys.length} listo(s), ${attn} a revisar — expanda para ver criterio de match`)
+        toast.info(
+          `${readyKeys.length} listo(s)${allocN ? `, ${allocN} ya registrado(s)` : ''}, ${attn} a revisar — expanda para ver criterio`,
+        )
       } else {
-        toast.success(`${data.imported} REP(s) importado(s)`)
+        toast.success(
+          `${data.imported} REP(s) importado(s)${allocN ? ` · ${allocN} ya registrado(s) (omitidos)` : ''}`,
+        )
       }
     } finally {
       setUploading(false)
@@ -528,10 +540,29 @@ export default function ComplementosDePagoPanel({ onApplied, compact = false, cl
             <span className="px-2 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
               {counts.ready} aplicables
             </span>
+            {counts.allocated > 0 && (
+              <span className="px-2 py-1 rounded-full bg-sky-50 text-sky-800 border border-sky-200">
+                {counts.allocated} ya registrado{counts.allocated !== 1 ? 's' : ''}
+              </span>
+            )}
             <span className="px-2 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
               {counts.attention} a revisar
             </span>
           </div>
+
+          <ImportAllocatedSummary
+            title={`${counts.allocated} complemento(s) de pago omitido(s) (ya en el sistema o repetidos en el archivo)`}
+            rows={allocatedRows.map(r => {
+              const repLabel =
+                [r.rep_serie, r.rep_folio].filter(Boolean).join('-')
+                || `parc. ${r.num_parcialidad}`
+              return {
+                key: repRowKey(r),
+                label: `${repLabel} · ${r.emisor_rfc}`,
+                detail: r.message ?? r.invoice_number,
+              }
+            })}
+          />
 
           <ImportReviewToolbar
             filter={filter}

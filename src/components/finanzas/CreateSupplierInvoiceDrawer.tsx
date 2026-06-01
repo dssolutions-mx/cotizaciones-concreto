@@ -29,6 +29,12 @@ import InvoiceRetentionsEditor, {
 } from '@/components/finanzas/InvoiceRetentionsEditor'
 import { orphanEntryLoggedRemisionLabel } from '@/lib/ap/orphanEntryRemisionNumbers'
 import { computeInvoiceTotals, deriveInvoiceSource, MANUAL_REASON_LABELS } from '@/lib/ap/retentionRates'
+import CfdiAlreadyRegisteredBanner from '@/components/finanzas/cfdi-import/CfdiAlreadyRegisteredBanner'
+import {
+  isSupplierInvoiceAlreadyRegistered,
+  supplierInvoiceAllocatedMessage,
+  type SupplierInvoiceDuplicates,
+} from '@/lib/ap/cfdiImportReview'
 
 function orphanEntryRemisionSuffix(entry: OrphanEntry, mode: 'material' | 'fleet' = 'material'): string {
   const rem = orphanEntryLoggedRemisionLabel(entry, mode)
@@ -252,6 +258,14 @@ export default function CreateSupplierInvoiceDrawer({
 
   // ── CFDI prefill tracking ─────────────────────────────────────────────────
   const [cfdiPrefilled, setCfdiPrefilled] = useState<Set<string>>(new Set())
+  const [invoiceDuplicateReview, setInvoiceDuplicateReview] = useState<SupplierInvoiceDuplicates | null>(null)
+
+  const invoiceAlreadyRegistered = invoiceDuplicateReview
+    ? isSupplierInvoiceAlreadyRegistered(invoiceDuplicateReview)
+    : false
+  const invoiceAllocatedMessage = invoiceDuplicateReview
+    ? supplierInvoiceAllocatedMessage(invoiceDuplicateReview)
+    : null
 
   // ── submit ─────────────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false)
@@ -289,6 +303,7 @@ export default function CreateSupplierInvoiceDrawer({
     setCfdiMetodoPago('')
     setCfdiUso('')
     setCfdiPrefilled(new Set())
+    setInvoiceDuplicateReview(null)
     setFleetGroupId('')
 
     if (isOrphanFleet) {
@@ -569,6 +584,8 @@ export default function CreateSupplierInvoiceDrawer({
     try {
       const form = new FormData()
       form.append('xml_file', file)
+      if (effectivePlantId) form.append('plant_id', effectivePlantId)
+      if (groupId) form.append('supplier_group_id', groupId)
       const res = await fetch('/api/ap/cfdi/parse', { method: 'POST', body: form })
       const data = await res.json()
       if (!res.ok) {
@@ -582,10 +599,20 @@ export default function CreateSupplierInvoiceDrawer({
       if (data.receptor_match === 'skipped') {
         toast.warning('RFC de empresa no configurado; no se validó el receptor del CFDI.')
       }
-      if (data.duplicate_invoice) {
-        toast.error(`Este CFDI ya está registrado en la factura ${data.duplicate_invoice.invoice_number}`)
-        return
+      const invDups: SupplierInvoiceDuplicates = {
+        by_uuid: data.duplicate_invoice
+          ? { id: data.duplicate_invoice.id, document_number: data.duplicate_invoice.invoice_number }
+          : null,
+        by_folio: data.duplicate_invoice_folio
+          ? { id: data.duplicate_invoice_folio.id, document_number: data.duplicate_invoice_folio.invoice_number }
+          : null,
       }
+      setInvoiceDuplicateReview(invDups)
+      const allocatedMsg = supplierInvoiceAllocatedMessage(invDups)
+      if (allocatedMsg) {
+        toast.message(allocatedMsg)
+      }
+
       const cfdi: ParsedCfdi = data.cfdi
       setParsedCfdi(cfdi)
       setCfdiFile(file)
@@ -699,6 +726,7 @@ export default function CreateSupplierInvoiceDrawer({
     setCfdiMetodoPago('')
     setCfdiUso('')
     setCfdiPrefilled(new Set())
+    setInvoiceDuplicateReview(null)
   }
 
   type ApiItemPayload = {
@@ -1150,6 +1178,9 @@ export default function CreateSupplierInvoiceDrawer({
                 </span>
               )}
             </h3>
+            {invoiceAllocatedMessage && (
+              <CfdiAlreadyRegisteredBanner message={invoiceAllocatedMessage} />
+            )}
             {parsedCfdi ? (
               <div className="rounded-md border border-emerald-200 bg-emerald-50/40 p-3 space-y-1">
                 <div className="flex items-start justify-between">
@@ -1699,8 +1730,12 @@ export default function CreateSupplierInvoiceDrawer({
         {/* Footer */}
         <div className="shrink-0 border-t border-stone-200 px-6 py-4 flex justify-end gap-3 bg-white">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>Cancelar</Button>
-          <Button onClick={() => void handleSubmit()} disabled={loading} className="bg-sky-700 hover:bg-sky-800 text-white">
-            {loading ? 'Creando…' : 'Crear factura'}
+          <Button
+            onClick={() => void handleSubmit()}
+            disabled={loading || invoiceAlreadyRegistered}
+            className="bg-sky-700 hover:bg-sky-800 text-white"
+          >
+            {loading ? 'Creando…' : invoiceAlreadyRegistered ? 'CFDI ya facturado' : 'Crear factura'}
           </Button>
         </div>
       </SheetContent>

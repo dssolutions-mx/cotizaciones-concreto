@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { parseCfdiXml, CfdiParseError } from '@/lib/sat/cfdiParser'
 import { fetchCompanyRfc, compareReceptorRfc } from '@/lib/ap/companyRfc'
+import {
+  lookupCreditNoteDuplicates,
+  lookupSupplierInvoiceDuplicates,
+} from '@/lib/ap/cfdiImportReview'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS']
 
-// POST /api/ap/cfdi/parse — multipart/form-data with xml_file
-// Returns parsed CFDI metadata for prefilling. No DB writes.
+// POST /api/ap/cfdi/parse — multipart: xml_file, optional plant_id, optional supplier_group_id
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -23,6 +26,8 @@ export async function POST(request: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json({ error: 'Se requiere un archivo xml_file' }, { status: 400 })
     }
+    const plantId = String(form.get('plant_id') ?? '').trim() || null
+    const supplierGroupId = String(form.get('supplier_group_id') ?? '').trim() || null
     const xmlText = await file.text()
 
     let parsed
@@ -38,7 +43,6 @@ export async function POST(request: NextRequest) {
     const companyRfc = await fetchCompanyRfc(supabase)
     const { receptor_match } = compareReceptorRfc(parsed.receptor_rfc, companyRfc)
 
-    // Try to find existing supplier_group by emisor RFC
     const { data: matchingGroup } = await supabase
       .from('supplier_groups')
       .select('id, name, rfc')
@@ -46,19 +50,47 @@ export async function POST(request: NextRequest) {
       .eq('is_active', true)
       .maybeSingle()
 
-    // Check whether this UUID is already attached to a supplier_invoice
-    const { data: existingInvoice } = await supabase
-      .from('supplier_invoices')
-      .select('id, invoice_number')
-      .eq('cfdi_uuid', parsed.uuid)
-      .maybeSingle()
+    const groupId = supplierGroupId ?? matchingGroup?.id ?? null
+
+    const invoiceDups = await lookupSupplierInvoiceDuplicates(supabase, {
+      cfdiUuid: parsed.uuid,
+      supplierGroupId: groupId,
+      plantId,
+      cfdi: parsed,
+    })
+
+    const folio =
+      [parsed.serie, parsed.folio].filter(Boolean).join('-') || parsed.uuid.slice(0, 8)
+    const creditDups =
+      parsed.tipo_comprobante === 'E'
+        ? await lookupCreditNoteDuplicates(supabase, {
+            cfdiUuid: parsed.uuid,
+            supplierGroupId: groupId,
+            plantId,
+            creditNumber: folio,
+          })
+        : { by_uuid: null, by_folio: null }
 
     return NextResponse.json({
       cfdi: parsed,
       receptor_match,
       company_rfc: companyRfc || null,
       supplier_group: matchingGroup ?? null,
-      duplicate_invoice: existingInvoice ?? null,
+      duplicate_invoice: invoiceDups.by_uuid
+        ? { id: invoiceDups.by_uuid.id, invoice_number: invoiceDups.by_uuid.document_number }
+        : null,
+      duplicate_invoice_folio: invoiceDups.by_folio
+        ? { id: invoiceDups.by_folio.id, invoice_number: invoiceDups.by_folio.document_number }
+        : null,
+      duplicate_credit_note: creditDups.by_uuid
+        ? { id: creditDups.by_uuid.id, credit_number: creditDups.by_uuid.document_number }
+        : null,
+      duplicate_credit_note_folio: creditDups.by_folio
+        ? { id: creditDups.by_folio.id, credit_number: creditDups.by_folio.document_number }
+        : null,
+      already_registered:
+        Boolean(invoiceDups.by_uuid ?? invoiceDups.by_folio)
+        || Boolean(creditDups.by_uuid ?? creditDups.by_folio),
       file_name: file.name,
       file_size: file.size,
     })
