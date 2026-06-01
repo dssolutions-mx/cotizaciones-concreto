@@ -22,8 +22,11 @@ import {
   matchCfdiToEntries,
   getEligibleCfdisForEntry,
   getOrphanCfdis,
+  getAlreadyAllocatedCfdis,
+  getUploadDuplicateCfdis,
   buildMatchDetails,
   cfdiDisplayLabel,
+  shouldOmitCfdiFromBulkCreate,
   type BulkAssignment,
   type MatchConfidence,
   type ParsedCfdiForMatch,
@@ -63,6 +66,9 @@ function toMatchInput(parsed: ParsedCfdiBulkItem[]): ParsedCfdiForMatch[] {
     supplier_group: p.supplier_group,
     receptor_match: p.receptor_match,
     duplicate_invoice: p.duplicate_invoice,
+    duplicate_invoice_folio: p.duplicate_invoice_folio,
+    duplicate_cfdi_in_upload: p.duplicate_cfdi_in_upload,
+    duplicate_folio_in_upload: p.duplicate_folio_in_upload,
   }))
 }
 
@@ -151,8 +157,15 @@ function rowWarnings(
   if (p?.receptor_match === 'mismatch') {
     warnings.push('RFC receptor no coincide con la empresa')
   }
-  if (p?.duplicate_invoice) {
-    warnings.push(`CFDI ya registrado (${p.duplicate_invoice.invoice_number})`)
+  if (p && shouldOmitCfdiFromBulkCreate(p)) {
+    const omitMsg = p.duplicate_invoice
+      ? `Ya facturado en sistema (${p.duplicate_invoice.invoice_number})`
+      : p.duplicate_invoice_folio
+        ? `Folio ya registrado (${p.duplicate_invoice_folio.invoice_number})`
+        : p.duplicate_cfdi_in_upload
+          ? 'CFDI repetido en el archivo — omitido'
+          : 'Folio repetido en el archivo — omitido'
+    if (!warnings.includes(omitMsg)) warnings.push(omitMsg)
   }
   const amt = Number(entry.total_cost ?? 0)
   const cfdiBase = Math.max(0, (p?.cfdi.subtotal ?? 0) - (p?.cfdi.descuento ?? 0))
@@ -212,6 +225,7 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
     setParseErrors([])
     try {
       const form = new FormData()
+      if (plantId) form.append('plant_id', plantId)
       const zipFile = list.find(f => f.name.toLowerCase().endsWith('.zip'))
       if (zipFile && list.length === 1) {
         form.append('zip_file', zipFile)
@@ -246,11 +260,16 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
         return
       }
 
-      const auto = matchCfdiToEntries(entries, toMatchInput(parsed))
+      const forMatch = toMatchInput(parsed)
+      const auto = matchCfdiToEntries(entries, forMatch)
       setAssignments(auto)
       setStep('assign')
+      const allocatedN = getAlreadyAllocatedCfdis(forMatch).length
       toast.success(
-        `${parsed.length} factura(s) de ingreso${data.skipped_non_invoice?.length ? `, ${data.skipped_non_invoice.length} omitido(s) (no tipo I)` : ''}${errors.length ? `, ${errors.length} con error` : ''}`,
+        `${parsed.length} factura(s) de ingreso`
+        + `${allocatedN ? `, ${allocatedN} ya facturada(s) (omitidas)` : ''}`
+        + `${data.skipped_non_invoice?.length ? `, ${data.skipped_non_invoice.length} omitido(s) (no tipo I)` : ''}`
+        + `${errors.length ? `, ${errors.length} con error` : ''}`,
       )
     } finally {
       setParsing(false)
@@ -288,25 +307,42 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
     [parsedForMatch, assignments],
   )
 
+  const allocatedCfdis = useMemo(
+    () => getAlreadyAllocatedCfdis(parsedForMatch),
+    [parsedForMatch],
+  )
+
+  const uploadDuplicateCfdis = useMemo(
+    () => getUploadDuplicateCfdis(parsedForMatch),
+    [parsedForMatch],
+  )
+
+  const isOmitFromCreateWarning = (w: string) =>
+    w.includes('Ya facturado en sistema')
+    || w.includes('Folio ya registrado')
+    || w.includes('repetido en el archivo — omitido')
+
   const isBlockerWarning = (w: string) =>
     w.includes('RFC receptor no coincide')
-    || w.includes('ya registrado')
     || w.includes('más de una recepción')
     || w.includes('Proveedor no coincide')
+    || w.startsWith('Precio unitario:')
 
   const rowsToCreate = useMemo(() =>
-    enrichedRows.filter(r =>
-      r.assignment.cfdi_id
-      && r.assignment.include_in_create !== false
-      && !r.warnings.some(isBlockerWarning),
-    ),
-  [enrichedRows])
+    enrichedRows.filter(r => {
+      if (!r.assignment.cfdi_id || r.assignment.include_in_create === false) return false
+      const parsed = parsedForMatch.find(p => p.id === r.assignment.cfdi_id)
+      if (parsed && shouldOmitCfdiFromBulkCreate(parsed)) return false
+      return !r.warnings.some(isBlockerWarning)
+    }),
+  [enrichedRows, parsedForMatch])
 
-  const blockingIssues = enrichedRows.some(r =>
-    r.assignment.cfdi_id
-    && r.assignment.include_in_create !== false
-    && r.warnings.some(isBlockerWarning),
-  )
+  const blockingIssues = enrichedRows.some(r => {
+    if (!r.assignment.cfdi_id || r.assignment.include_in_create === false) return false
+    const parsed = parsedForMatch.find(p => p.id === r.assignment.cfdi_id)
+    if (parsed && shouldOmitCfdiFromBulkCreate(parsed)) return false
+    return r.warnings.some(isBlockerWarning)
+  })
 
   const unassignedCount = assignments.filter(a => !a.cfdi_id).length
   const matchedCount = assignments.filter(a => a.cfdi_id).length
@@ -338,13 +374,14 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
         duplicateCfdiIds,
       )
 
+      const omit = shouldOmitCfdiFromBulkCreate(parsed)
       return {
         entry_id: entryId,
         cfdi_id: cfdiId,
         confidence,
         warnings,
         match_details,
-        include_in_create: true,
+        include_in_create: !omit,
       }
     }))
   }
@@ -465,6 +502,16 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                 <span className="rounded-full bg-stone-100 text-stone-700 px-2.5 py-1">
                   {orphanCfdis.length} CFDI{orphanCfdis.length !== 1 ? 's' : ''} huérfano{orphanCfdis.length !== 1 ? 's' : ''}
                 </span>
+                {allocatedCfdis.length > 0 && (
+                  <span className="rounded-full bg-sky-100 text-sky-800 px-2.5 py-1">
+                    {allocatedCfdis.length} ya facturado{allocatedCfdis.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {uploadDuplicateCfdis.length > 0 && (
+                  <span className="rounded-full bg-stone-100 text-stone-600 px-2.5 py-1">
+                    {uploadDuplicateCfdis.length} duplicado{uploadDuplicateCfdis.length !== 1 ? 's' : ''} en archivo
+                  </span>
+                )}
                 {skippedNonInvoice.length > 0 && (
                   <span className="rounded-full bg-stone-100 text-stone-500 px-2.5 py-1">
                     {skippedNonInvoice.length} omitido(s) — no factura ingreso
@@ -481,6 +528,35 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                 <div className="text-xs text-stone-600 flex items-center gap-1.5 rounded-md border border-stone-200 bg-stone-50 px-3 py-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
                   RFC empresa no encontrado en configuración — validación de receptor omitida
+                </div>
+              )}
+
+              {(allocatedCfdis.length > 0 || uploadDuplicateCfdis.length > 0) && (
+                <div className="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950 space-y-2">
+                  <div className="font-medium">
+                    {allocatedCfdis.length + uploadDuplicateCfdis.length} CFDI
+                    {allocatedCfdis.length + uploadDuplicateCfdis.length !== 1 ? 's' : ''}{' '}
+                    omitido{allocatedCfdis.length + uploadDuplicateCfdis.length !== 1 ? 's' : ''} del lote
+                    {allocatedCfdis.length > 0 ? ' (ya registrados en el sistema)' : ''}
+                  </div>
+                  <ul className="list-disc pl-4 max-h-28 overflow-y-auto space-y-0.5">
+                    {allocatedCfdis.map(p => (
+                      <li key={p.id}>
+                        {cfdiDisplayLabel(p)}
+                        {p.duplicate_invoice && (
+                          <span className="text-sky-700"> → {p.duplicate_invoice.invoice_number}</span>
+                        )}
+                        {!p.duplicate_invoice && p.duplicate_invoice_folio && (
+                          <span className="text-sky-700"> → {p.duplicate_invoice_folio.invoice_number}</span>
+                        )}
+                      </li>
+                    ))}
+                    {uploadDuplicateCfdis.map(p => (
+                      <li key={`up-${p.id}-${p.file_name}`} className="text-stone-600">
+                        {cfdiDisplayLabel(p)} · repetido en el ZIP
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
@@ -553,7 +629,11 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                       const remisionLabel = orphanEntryLoggedRemisionLabel(entry, 'material')
                       const eligible = getEligibleCfdisForEntry(entry, parsedForMatch)
                       const selectedParsed = parsedForMatch.find(p => p.id === assignment.cfdi_id)
+                      const omittedFromCreate = Boolean(
+                        selectedParsed && shouldOmitCfdiFromBulkCreate(selectedParsed),
+                      )
                       const hasBlocker = warnings.some(isBlockerWarning)
+                      const issueWarnings = warnings.filter(w => !isOmitFromCreateWarning(w))
                       const isExpanded = expandedReviewId === entry.id
                       const canReview = Boolean(assignment.cfdi_id && assignment.match_details)
                       return (
@@ -562,8 +642,13 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                           className={cn(
                             'border-b',
                             !assignment.cfdi_id && 'bg-stone-50/80',
+                            omittedFromCreate && 'bg-sky-50/40',
                             hasBlocker && assignment.cfdi_id && 'bg-red-50/30',
-                            assignment.confidence === 'high' && !hasBlocker && assignment.cfdi_id && 'bg-emerald-50/20',
+                            assignment.confidence === 'high'
+                              && !hasBlocker
+                              && !omittedFromCreate
+                              && assignment.cfdi_id
+                              && 'bg-emerald-50/20',
                           )}
                         >
                           <td className="px-2 py-2">
@@ -580,8 +665,12 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                           </td>
                           <td className="px-2 py-2">
                             <Checkbox
-                              checked={assignment.include_in_create !== false && Boolean(assignment.cfdi_id)}
-                              disabled={!assignment.cfdi_id || hasBlocker}
+                              checked={
+                                assignment.include_in_create !== false
+                                && Boolean(assignment.cfdi_id)
+                                && !omittedFromCreate
+                              }
+                              disabled={!assignment.cfdi_id || hasBlocker || omittedFromCreate}
                               onCheckedChange={(v) => toggleInclude(entry.id, Boolean(v))}
                               aria-label="Incluir en lote"
                             />
@@ -612,9 +701,17 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                                 <SelectItem value={NONE_VALUE}>— Sin asignar —</SelectItem>
                                 {parsedForMatch.map(p => {
                                   const isEligible = eligible.some(e => e.id === p.id)
+                                  const omitted = shouldOmitCfdiFromBulkCreate(p)
+                                  const suffix = omitted
+                                    ? p.duplicate_invoice || p.duplicate_invoice_folio
+                                      ? ' (ya facturado)'
+                                      : ' (dup. archivo)'
+                                    : !isEligible
+                                      ? ' (revisar)'
+                                      : ''
                                   return (
                                     <SelectItem key={p.id} value={p.id}>
-                                      {cfdiDisplayLabel(p)}{!isEligible ? ' (revisar)' : ''}
+                                      {cfdiDisplayLabel(p)}{suffix}
                                     </SelectItem>
                                   )
                                 })}
@@ -635,15 +732,30 @@ export default function BulkCfdiInvoiceDialog({ open, onOpenChange, entries, onS
                             </span>
                           </td>
                           <td className="px-3 py-2">
-                            {warnings.length === 0 ? (
+                            {omittedFromCreate && issueWarnings.length === 0 ? (
+                              <span className="text-sky-700 flex items-center gap-1">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Omitido — ya asignado
+                              </span>
+                            ) : issueWarnings.length === 0 && warnings.length === 0 ? (
                               <span className="text-emerald-600 flex items-center gap-1">
                                 <CheckCircle2 className="h-3.5 w-3.5" /> OK
                               </span>
                             ) : (
-                              <ul className="text-[10px] text-amber-800 space-y-0.5">
+                              <ul className="text-[10px] space-y-0.5">
                                 {warnings.map((w, i) => (
-                                  <li key={i} className="flex items-start gap-1">
-                                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                                  <li
+                                    key={i}
+                                    className={cn(
+                                      'flex items-start gap-1',
+                                      isOmitFromCreateWarning(w) ? 'text-sky-800' : 'text-amber-800',
+                                    )}
+                                  >
+                                    {isOmitFromCreateWarning(w) ? (
+                                      <CheckCircle2 className="h-3 w-3 shrink-0 mt-0.5" />
+                                    ) : (
+                                      <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                                    )}
                                     {w}
                                   </li>
                                 ))}

@@ -233,8 +233,8 @@ function unitPriceCompare(
         label: 'Precio unitario',
         entry_value: `${entryNorm.price.toFixed(4)}${unitLabel} (${entryUp} / ${entry.received_uom ?? '?'})`,
         cfdi_value: `${cfdiNorm.price.toFixed(4)}${unitLabel} (${cfdiUp} / ${concepto ? conceptoUomLabel(concepto) : '?'})`,
-        status: match ? 'match' : 'neutral',
-        note: match ? undefined : 'Precio normalizado difiere — revisar UOM',
+        status: match ? 'match' : 'mismatch',
+        note: match ? undefined : `Diferencia ${(rel * 100).toFixed(1)}% en precio normalizado`,
       },
     }
   }
@@ -247,7 +247,8 @@ function unitPriceCompare(
       label: 'Precio unitario',
       entry_value: entryUp.toFixed(2),
       cfdi_value: cfdiUp.toFixed(2),
-      status: match ? 'match' : 'neutral',
+      status: match ? 'match' : 'mismatch',
+      note: match ? undefined : `Diferencia ${(rel * 100).toFixed(1)}%`,
     },
   }
 }

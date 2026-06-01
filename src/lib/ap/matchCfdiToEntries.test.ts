@@ -61,6 +61,9 @@ function makeParsed(
     supplier_group: { id: 'group-1', name: 'Proveedor SA', rfc: full.emisor_rfc },
     receptor_match: 'ok',
     duplicate_invoice: null,
+    duplicate_invoice_folio: null,
+    duplicate_cfdi_in_upload: false,
+    duplicate_folio_in_upload: false,
     ...extra,
   }
 }
@@ -100,7 +103,7 @@ describe('matchCfdiToEntries', () => {
     expect(ids).toEqual(['c1', 'c2'])
   })
 
-  it('rejects duplicate UUID CFDIs via eligibility', () => {
+  it('does not auto-assign CFDIs already in the system', () => {
     const entries = [makeEntry()]
     const parsed = [
       makeParsed('cfdi-dup', {}, {
@@ -109,6 +112,7 @@ describe('matchCfdiToEntries', () => {
     ]
     const result = matchCfdiToEntries(entries, parsed)
     expect(result[0].cfdi_id).toBeNull()
+    expect(result[0].include_in_create).toBe(false)
   })
 
   it('matches by amount within tolerance when folio differs', () => {

@@ -1,5 +1,12 @@
 import type { ParsedCfdi } from '@/types/finance'
 import { buildMatchDetails, scoreFromMatchDetails, type MatchDetailField, type ScoreBreakdownItem } from './cfdiEntryMatchDetails'
+import {
+  allocatedCfdiLabel,
+  isCfdiAlreadyAllocated,
+  isCfdiUploadDuplicate,
+  shouldOmitCfdiFromBulkCreate,
+  uploadDuplicateCfdiLabel,
+} from './bulkCfdiValidation'
 
 /** Minimal entry shape for matching — avoids coupling to UI component types. */
 export type MatchableOrphanEntry = {
@@ -27,6 +34,10 @@ export type ParsedCfdiForMatch = {
   supplier_group: { id: string; name: string; rfc: string | null } | null
   receptor_match: 'ok' | 'mismatch' | 'skipped'
   duplicate_invoice: { id: string; invoice_number: string } | null
+  /** Same folio already exists for supplier + plant in DB. */
+  duplicate_invoice_folio: { id: string; invoice_number: string } | null
+  duplicate_cfdi_in_upload: boolean
+  duplicate_folio_in_upload: boolean
 }
 
 export type MatchConfidence = 'high' | 'medium' | 'low' | 'manual'
@@ -64,9 +75,6 @@ export function cfdiEligibleForEntry(
   if (parsed.receptor_match === 'mismatch') {
     return { eligible: false, reason: 'RFC receptor no coincide con la empresa' }
   }
-  if (parsed.duplicate_invoice) {
-    return { eligible: false, reason: `CFDI ya registrado (${parsed.duplicate_invoice.invoice_number})` }
-  }
   if (parsed.cfdi.tipo_comprobante !== 'I') {
     return { eligible: false, reason: 'No es factura de ingreso (tipo I)' }
   }
@@ -79,6 +87,7 @@ export function cfdiEligibleForEntry(
 }
 
 function scorePair(entry: MatchableOrphanEntry, parsed: ParsedCfdiForMatch): number {
+  if (shouldOmitCfdiFromBulkCreate(parsed)) return -1
   const { eligible } = cfdiEligibleForEntry(entry, parsed)
   if (!eligible) return -1
   return scoreFromMatchDetails(entry, parsed.cfdi)
@@ -93,14 +102,19 @@ function confidenceFromScore(score: number): MatchConfidence {
 
 function warningsForPair(entry: MatchableOrphanEntry, parsed: ParsedCfdiForMatch): string[] {
   const warnings: string[] = []
+  const allocated = allocatedCfdiLabel(parsed)
+  if (allocated) warnings.push(allocated)
+  const uploadDup = uploadDuplicateCfdiLabel(parsed)
+  if (uploadDup) warnings.push(uploadDup)
+
   const { reason, eligible } = cfdiEligibleForEntry(entry, parsed)
   if (!eligible && reason) warnings.push(reason)
 
   const details = buildMatchDetails(entry, parsed.cfdi)
   for (const f of details.fields) {
-    if (f.status === 'mismatch' && f.label !== 'Cantidad') {
-      warnings.push(`${f.label}: recepción ${f.entry_value ?? '—'} vs CFDI ${f.cfdi_value ?? '—'}`)
-    }
+    if (f.status !== 'mismatch') continue
+    if (f.label.startsWith('Cantidad')) continue
+    warnings.push(`${f.label}: recepción ${f.entry_value ?? '—'} vs CFDI ${f.cfdi_value ?? '—'}`)
   }
 
   const entryAmount = Number(entry.total_cost ?? 0)
@@ -124,13 +138,14 @@ function assignmentForPair(
   const match_details = parsed
     ? buildMatchDetails(entry, parsed.cfdi)
     : undefined
+  const omit = parsed ? shouldOmitCfdiFromBulkCreate(parsed) : false
   return {
     entry_id: entry.id,
     cfdi_id: parsed?.id ?? null,
     confidence,
     warnings: parsed ? warningsForPair(entry, parsed) : ['Sin CFDI asignado'],
     match_details,
-    include_in_create: confidence !== null && confidence !== 'manual',
+    include_in_create: !omit && confidence !== null && confidence !== 'manual',
   }
 }
 
@@ -209,7 +224,23 @@ export function getOrphanCfdis(
   assignments: BulkAssignment[],
 ): ParsedCfdiForMatch[] {
   const used = new Set(assignments.map(a => a.cfdi_id).filter(Boolean) as string[])
-  return parsedCfdis.filter(p => !used.has(p.id))
+  return parsedCfdis.filter(p => !used.has(p.id) && !shouldOmitCfdiFromBulkCreate(p))
 }
 
-export { buildMatchDetails, cfdiTaxableBase, cfdiFolioLabel }
+/** Parsed CFDIs already in the system — shown for reference, excluded from create. */
+export function getAlreadyAllocatedCfdis(parsedCfdis: ParsedCfdiForMatch[]): ParsedCfdiForMatch[] {
+  return parsedCfdis.filter(isCfdiAlreadyAllocated)
+}
+
+export function getUploadDuplicateCfdis(parsedCfdis: ParsedCfdiForMatch[]): ParsedCfdiForMatch[] {
+  return parsedCfdis.filter(p => isCfdiUploadDuplicate(p) && !isCfdiAlreadyAllocated(p))
+}
+
+export {
+  buildMatchDetails,
+  cfdiTaxableBase,
+  cfdiFolioLabel,
+  isCfdiAlreadyAllocated,
+  shouldOmitCfdiFromBulkCreate,
+  allocatedCfdiLabel,
+}

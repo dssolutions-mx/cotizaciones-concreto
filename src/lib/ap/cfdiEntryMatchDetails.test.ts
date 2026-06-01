@@ -97,5 +97,16 @@ describe('cement CFDI match details', () => {
     expect(subtotal?.status).toBe('match')
     const qty = fields.find(f => f.label.startsWith('Cantidad'))
     expect(qty?.status).toBe('match')
+    const price = fields.find(f => f.label === 'Precio unitario')
+    expect(price?.status).toBe('match')
+  })
+
+  it('marks unit price mismatch when subtotal still matches', () => {
+    const mismatched = { ...entry, unit_price: 3200 }
+    const { fields } = buildMatchDetails(mismatched, cfdi)
+    const price = fields.find(f => f.label === 'Precio unitario')
+    expect(price?.status).toBe('mismatch')
+    const subtotal = fields.find(f => f.label === 'Subtotal línea')
+    expect(subtotal?.status).toBe('match')
   })
 })

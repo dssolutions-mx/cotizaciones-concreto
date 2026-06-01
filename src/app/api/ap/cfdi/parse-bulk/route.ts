@@ -3,6 +3,8 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { parseCfdiXml, CfdiParseError } from '@/lib/sat/cfdiParser'
 import { fetchCompanyRfc, compareReceptorRfc } from '@/lib/ap/companyRfc'
 import { extractXmlFromFormData } from '@/lib/sat/extractXmlFromUpload'
+import { normalizeCfdiUuid } from '@/lib/sat/normalizeCfdiUuid'
+import { invoiceNumberFromCfdi, markUploadDuplicates } from '@/lib/ap/bulkCfdiValidation'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS']
 
@@ -14,9 +16,12 @@ export type ParsedCfdiBulkItem = {
   company_rfc: string | null
   supplier_group: { id: string; name: string; rfc: string | null } | null
   duplicate_invoice: { id: string; invoice_number: string } | null
+  duplicate_invoice_folio: { id: string; invoice_number: string } | null
+  duplicate_cfdi_in_upload: boolean
+  duplicate_folio_in_upload: boolean
 }
 
-// POST /api/ap/cfdi/parse-bulk — multipart zip_file, xml_file, or xml_files[]
+// POST /api/ap/cfdi/parse-bulk — multipart zip_file, xml_file, or xml_files[]; optional plant_id
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient()
@@ -29,6 +34,7 @@ export async function POST(request: NextRequest) {
     }
 
     const form = await request.formData()
+    const plantId = String(form.get('plant_id') ?? '').trim() || null
     const extracted = await extractXmlFromFormData(form)
     if ('error' in extracted) {
       return NextResponse.json({ error: extracted.error }, { status: 400 })
@@ -63,11 +69,26 @@ export async function POST(request: NextRequest) {
           .eq('is_active', true)
           .maybeSingle()
 
-        const { data: existingInvoice } = await supabase
+        const normalizedUuid = normalizeCfdiUuid(cfdi.uuid) ?? cfdi.uuid
+
+        const { data: existingByUuid } = await supabase
           .from('supplier_invoices')
           .select('id, invoice_number')
-          .eq('cfdi_uuid', cfdi.uuid)
+          .eq('cfdi_uuid', normalizedUuid)
           .maybeSingle()
+
+        const invoiceNumber = invoiceNumberFromCfdi(cfdi)
+        let existingByFolio: { id: string; invoice_number: string } | null = null
+        if (matchingGroup?.id && plantId && invoiceNumber) {
+          const { data: existingFolio } = await supabase
+            .from('supplier_invoices')
+            .select('id, invoice_number')
+            .eq('supplier_group_id', matchingGroup.id)
+            .eq('plant_id', plantId)
+            .eq('invoice_number', invoiceNumber)
+            .maybeSingle()
+          existingByFolio = existingFolio ?? null
+        }
 
         parsed.push({
           id: cfdi.uuid,
@@ -76,7 +97,10 @@ export async function POST(request: NextRequest) {
           receptor_match,
           company_rfc: companyRfc || null,
           supplier_group: matchingGroup ?? null,
-          duplicate_invoice: existingInvoice ?? null,
+          duplicate_invoice: existingByUuid ?? null,
+          duplicate_invoice_folio: existingByFolio,
+          duplicate_cfdi_in_upload: false,
+          duplicate_folio_in_upload: false,
         })
       } catch (err) {
         const msg = err instanceof CfdiParseError ? err.message : 'XML inválido o no es CFDI'
@@ -84,7 +108,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ parsed, errors, skipped_non_invoice, company_rfc: companyRfc })
+    const withUploadFlags = markUploadDuplicates(parsed)
+
+    return NextResponse.json({
+      parsed: withUploadFlags,
+      errors,
+      skipped_non_invoice,
+      company_rfc: companyRfc,
+    })
   } catch (err) {
     console.error('/api/ap/cfdi/parse-bulk POST error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
