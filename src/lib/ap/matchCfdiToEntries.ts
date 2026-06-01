@@ -1,5 +1,11 @@
 import type { ParsedCfdi } from '@/types/finance'
-import { buildMatchDetails, scoreFromMatchDetails, type MatchDetailField, type ScoreBreakdownItem } from './cfdiEntryMatchDetails'
+import {
+  buildMatchDetails,
+  cfdiEntryDateDiffDays,
+  scoreFromMatchDetails,
+  type MatchDetailField,
+  type ScoreBreakdownItem,
+} from './cfdiEntryMatchDetails'
 import {
   allocatedCfdiLabel,
   isCfdiAlreadyAllocated,
@@ -156,19 +162,29 @@ export function matchCfdiToEntries(
   entries: MatchableOrphanEntry[],
   parsedCfdis: ParsedCfdiForMatch[],
 ): BulkAssignment[] {
-  type ScoredPair = { entryId: string; cfdiId: string; score: number }
+  type ScoredPair = { entryId: string; cfdiId: string; score: number; dateDays: number }
   const pairs: ScoredPair[] = []
 
   for (const entry of entries) {
     for (const parsed of parsedCfdis) {
       const score = scorePair(entry, parsed)
       if (score >= 0) {
-        pairs.push({ entryId: entry.id, cfdiId: parsed.id, score })
+        pairs.push({
+          entryId: entry.id,
+          cfdiId: parsed.id,
+          score,
+          dateDays: cfdiEntryDateDiffDays(entry.entry_date, parsed.cfdi.fecha_emision),
+        })
       }
     }
   }
 
-  pairs.sort((a, b) => b.score - a.score)
+  // Higher score first; when several CFDIs share amount/supplier, prefer closest invoice date.
+  pairs.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score
+    if (a.dateDays !== b.dateDays) return a.dateDays - b.dateDays
+    return a.cfdiId.localeCompare(b.cfdiId)
+  })
 
   const assignedEntries = new Set<string>()
   const assignedCfdis = new Set<string>()

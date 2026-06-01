@@ -115,6 +115,28 @@ describe('matchCfdiToEntries', () => {
     expect(result[0].include_in_create).toBe(false)
   })
 
+  it('prefers CFDI with closer date when amounts tie', () => {
+    const entries = [
+      makeEntry({ id: 'e1', entry_date: '2026-01-15', total_cost: 1000, supplier_invoice: null }),
+    ]
+    const parsed = [
+      makeParsed('c-far', {
+        uuid: 'u-far',
+        folio: '200',
+        subtotal: 1000,
+        fecha_emision: '2026-01-25T10:00:00',
+      }),
+      makeParsed('c-near', {
+        uuid: 'u-near',
+        folio: '201',
+        subtotal: 1000,
+        fecha_emision: '2026-01-16T10:00:00',
+      }),
+    ]
+    const result = matchCfdiToEntries(entries, parsed)
+    expect(result[0].cfdi_id).toBe('c-near')
+  })
+
   it('matches by amount within tolerance when folio differs', () => {
     const entries = [makeEntry({ supplier_invoice: null, total_cost: 1000.5 })]
     const parsed = [makeParsed('cfdi-amt', { folio: '999', subtotal: 1000 })]

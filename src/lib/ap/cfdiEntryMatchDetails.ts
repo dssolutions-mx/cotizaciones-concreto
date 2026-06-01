@@ -30,6 +30,73 @@ const AMOUNT_TOLERANCE = 1.0
 const QTY_REL_TOLERANCE = 0.03
 const UNIT_PRICE_REL_TOLERANCE = 0.02
 
+/** Invoice emission within this window of reception is a strong match signal. */
+export const CFDI_DATE_CLOSE_DAYS = 3
+/** Still contributes points up to this gap (common billing lag). */
+export const CFDI_DATE_SOFT_DAYS = 30
+
+export function cfdiEntryDateDiffDays(entryDate: string, cfdiFechaEmision: string): number {
+  const entryMs = new Date(entryDate.slice(0, 10)).getTime()
+  const cfdiMs = new Date(cfdiFechaEmision.slice(0, 10)).getTime()
+  if (Number.isNaN(entryMs) || Number.isNaN(cfdiMs)) return 999
+  return Math.abs(entryMs - cfdiMs) / (1000 * 60 * 60 * 24)
+}
+
+export function cfdiEntryDateMatchScore(days: number): number {
+  if (days <= CFDI_DATE_CLOSE_DAYS) {
+    return 55 - Math.floor(days) * 5
+  }
+  if (days <= 7) return 35
+  if (days <= CFDI_DATE_SOFT_DAYS) {
+    return Math.max(8, 28 - Math.floor(days / 2))
+  }
+  return 0
+}
+
+function dateCompare(
+  entry: MatchableOrphanEntry,
+  cfdi: ParsedCfdi,
+): { score: number; field: MatchDetailField; breakdown: ScoreBreakdownItem | null } {
+  const entryVal = entry.entry_date?.slice(0, 10) ?? null
+  const cfdiVal = cfdi.fecha_emision.slice(0, 10)
+  const days = cfdiEntryDateDiffDays(entry.entry_date, cfdi.fecha_emision)
+  const score = cfdiEntryDateMatchScore(days)
+
+  let status: MatchFieldStatus = 'neutral'
+  let note: string | undefined
+  if (days <= CFDI_DATE_CLOSE_DAYS) {
+    status = 'match'
+    note = days === 0 ? 'Mismo día' : `±${Math.round(days)} día(s)`
+  } else if (days <= CFDI_DATE_SOFT_DAYS) {
+    status = 'info'
+    note = `±${Math.round(days)} día(s) — facturación cercana`
+  } else if (entryVal) {
+    status = 'mismatch'
+    note = `±${Math.round(days)} día(s) — revisar si el monto coincide`
+  }
+
+  const breakdown: ScoreBreakdownItem | null = score > 0
+    ? {
+        signal: days <= CFDI_DATE_CLOSE_DAYS
+          ? `Fecha ±${Math.round(days)}d`
+          : `Fecha ±${Math.round(days)}d (lejana)`,
+        points: score,
+      }
+    : null
+
+  return {
+    score,
+    field: {
+      label: 'Fecha recepción / emisión',
+      entry_value: entryVal,
+      cfdi_value: cfdiVal,
+      status,
+      note,
+    },
+    breakdown,
+  }
+}
+
 function normalizeText(s: string): string {
   return s
     .normalize('NFD')
@@ -322,12 +389,9 @@ export function buildMatchDetails(
     status: 'info',
   })
 
-  fields.push({
-    label: 'Fecha',
-    entry_value: entry.entry_date?.slice(0, 10) ?? null,
-    cfdi_value: cfdi.fecha_emision.slice(0, 10),
-    status: 'neutral',
-  })
+  const dateResult = dateCompare(entry, cfdi)
+  fields.push(dateResult.field)
+  if (dateResult.breakdown) score_breakdown.push(dateResult.breakdown)
 
   fields.push({
     label: 'RFC emisor',
@@ -348,13 +412,5 @@ export function scoreFromMatchDetails(
   cfdi: ParsedCfdi,
 ): number {
   const { score_breakdown } = buildMatchDetails(entry, cfdi)
-  let total = score_breakdown.reduce((s, x) => s + x.points, 0)
-
-  const days = Math.abs(
-    new Date(cfdi.fecha_emision.slice(0, 10)).getTime()
-    - new Date(entry.entry_date.slice(0, 10)).getTime(),
-  ) / (1000 * 60 * 60 * 24)
-  if (days <= 30) total += Math.max(0, 20 - Math.floor(days / 2))
-
-  return total
+  return score_breakdown.reduce((s, x) => s + x.points, 0)
 }

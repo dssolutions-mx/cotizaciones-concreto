@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { parseCompanyRfcSetting, compareReceptorRfc } from './companyRfc'
-import { buildMatchDetails, scoreFromMatchDetails } from './cfdiEntryMatchDetails'
+import {
+  buildMatchDetails,
+  cfdiEntryDateDiffDays,
+  cfdiEntryDateMatchScore,
+  scoreFromMatchDetails,
+} from './cfdiEntryMatchDetails'
 import type { ParsedCfdi } from '@/types/finance'
 
 describe('parseCompanyRfcSetting', () => {
@@ -99,6 +104,16 @@ describe('cement CFDI match details', () => {
     expect(qty?.status).toBe('match')
     const price = fields.find(f => f.label === 'Precio unitario')
     expect(price?.status).toBe('match')
+  })
+
+  it('treats invoice dates within 3 days as a match', () => {
+    const cfdiPlus2 = { ...cfdi, fecha_emision: '2026-04-16T10:00:00' }
+    const { fields, score_breakdown } = buildMatchDetails(entry, cfdiPlus2)
+    const fecha = fields.find(f => f.label === 'Fecha recepción / emisión')
+    expect(fecha?.status).toBe('match')
+    expect(cfdiEntryDateDiffDays(entry.entry_date, cfdiPlus2.fecha_emision)).toBe(2)
+    expect(score_breakdown.some(s => s.signal.includes('Fecha'))).toBe(true)
+    expect(cfdiEntryDateMatchScore(2)).toBeGreaterThan(cfdiEntryDateMatchScore(10))
   })
 
   it('marks unit price mismatch when subtotal still matches', () => {
