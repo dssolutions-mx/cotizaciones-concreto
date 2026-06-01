@@ -208,23 +208,44 @@ Usuario → botón "Registrar pago" (visible si status ∈ {open, partially_paid
 
 #### Complemento de pago SAT (REP, tipo P)
 
-Ruta UI: `/finanzas/cxp/sat?tab=complementos`
+Rutas UI:
+
+- `/finanzas/cxp/sat?tab=complementos` — inventario SAT completo
+- `/finanzas/procurement?tab=cxp&cxp_tab=facturas` — botón **Complementos (ZIP/XML)** en Facturas / CxP
 
 ```
 Usuario → importa ZIP/XML de REP (solo tipo P)
   └─ POST /api/ap/sat-pagos-import
-       ├─ parseCfdiXml → pagos_doctos (DoctoRelacionado.IdDocumento = UUID factura)
+       ├─ parseCfdiXml → pagos_doctos (IdDocumento, Folio, ImpPagado, …)
        ├─ upsert sat_cfdi_recibidos
-       └─ preview: match supplier_invoices.cfdi_uuid, valida saldo (total − pagos − NC)
+       └─ preview (buildRepPaymentPreview + repInvoiceMatch):
+            1. UUID factura (case-insensitive)
+            2. Puente inventario SAT tipo I + folio
+            3. Folio SAT + RFC emisor (confirmar en UI: match_folio_confirm)
+            4. Al aplicar: backfill cfdi_uuid si hizo falta match secundario
 
-Usuario → selecciona filas "Listo" → Aplicar
+Usuario → selecciona filas listas → Aplicar
   └─ POST /api/ap/sat-pagos-apply
-       ├─ INSERT payments { source: 'sat_rep', cfdi_rep_uuid, cfdi_docto_uuid, cfdi_num_parcialidad, ... }
-       └─ syncInvoiceStatusFromPayable (mismo trigger payments_recalc)
+       ├─ INSERT payments { source: 'sat_rep', … }
+       └─ syncInvoiceStatusFromPayable
+
+Roles apply: EXECUTIVE, ADMIN_OPERATIONS, PLANT_MANAGER (PLANT_MANAGER limitado a su planta).
 
 Idempotencia: índice único (cfdi_rep_uuid, cfdi_docto_uuid, cfdi_num_parcialidad).
+```
 
-Facturas sin cfdi_uuid en el sistema no pueden vincularse automáticamente (estado preview: invoice_not_found).
+#### Notas de crédito masivas (CFDI tipo E)
+
+Ruta UI: `/finanzas/procurement?tab=cxp&cxp_tab=facturas` — **NC masivas (ZIP/XML)**
+
+```
+Usuario → ZIP/XML de notas de crédito (tipo E)
+  └─ POST /api/ap/cfdi/parse-bulk-credit-notes
+       └─ preview: CfdiRelacionados → facturas abiertas del mismo proveedor
+
+Usuario → Crear seleccionadas
+  └─ POST /api/ap/credit-notes/bulk
+       └─ createCreditNote por cada NC (misma lógica que POST /api/ap/credit-notes)
 ```
 
 Estado resultante:

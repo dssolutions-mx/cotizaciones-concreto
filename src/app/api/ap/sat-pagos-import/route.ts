@@ -5,6 +5,7 @@ import { parsedCfdiToSatRow } from '@/lib/sat/satCfdiRow'
 import { buildRepPaymentPreview } from '@/lib/sat/repPayments'
 import type { ParsedCfdi } from '@/types/finance'
 import { extractXmlFromFormData } from '@/lib/sat/extractXmlFromUpload'
+import { normalizeCfdiUuid } from '@/lib/sat/normalizeCfdiUuid'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
 
@@ -45,18 +46,16 @@ export async function POST(request: NextRequest) {
     let imported = 0
     let skipped = 0
     const errors: Array<{ file: string; message: string }> = []
+    const skipped_details: Array<{ file: string; reason: string }> = []
 
     for (const { name, text } of entries) {
       try {
         const cfdi = parseCfdiXml(text)
-
-        if (companyRfc && cfdi.receptor_rfc !== companyRfc) {
-          skipped++
-          continue
-        }
+        cfdi.uuid = normalizeCfdiUuid(cfdi.uuid) ?? cfdi.uuid
 
         if (cfdi.tipo_comprobante !== 'P') {
           skipped++
+          skipped_details.push({ file: name, reason: `No es complemento de pago (tipo ${cfdi.tipo_comprobante})` })
           continue
         }
 
@@ -66,6 +65,7 @@ export async function POST(request: NextRequest) {
         }
 
         const row = parsedCfdiToSatRow(cfdi, user.id, importSource)
+        row.uuid = normalizeCfdiUuid(row.uuid) ?? row.uuid
         const { error: upsertErr } = await admin
           .from('sat_cfdi_recibidos')
           .upsert(row, { onConflict: 'uuid', ignoreDuplicates: false })
@@ -82,9 +82,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const preview = await buildRepPaymentPreview(supabase, parsedRep)
+    const preview = await buildRepPaymentPreview(supabase, parsedRep, { companyRfc })
 
-    return NextResponse.json({ imported, skipped, preview, errors })
+    return NextResponse.json({
+      imported,
+      skipped,
+      skipped_details,
+      preview,
+      errors,
+      company_rfc: companyRfc || null,
+    })
   } catch (err) {
     console.error('POST /api/ap/sat-pagos-import error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

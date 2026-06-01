@@ -188,6 +188,8 @@ export interface SatCfdiRecibido {
 export interface CfdiPagoDocto {
   uuid: string
   docto_relacionado_uuid: string
+  docto_folio?: string | null
+  docto_serie?: string | null
   imp_pagado: number
   num_parcialidad: number
   fecha_pago: string | null
@@ -195,8 +197,19 @@ export interface CfdiPagoDocto {
   moneda_p?: string | null
 }
 
+export type RepMatchMethod =
+  | 'uuid'
+  | 'sat_bridge'
+  | 'folio'
+  | 'ambiguous'
+  | 'manual'
+
 export type RepPaymentPreviewStatus =
   | 'ready'
+  | 'match_folio_confirm'
+  | 'ambiguous_match'
+  | 'sat_without_invoice'
+  | 'receptor_mismatch'
   | 'already_applied'
   | 'invoice_not_found'
   | 'no_payable'
@@ -205,11 +218,18 @@ export type RepPaymentPreviewStatus =
   | 'invoice_paid'
   | 'skipped_not_p'
 
+export interface RepAmbiguousCandidate {
+  id: string
+  invoice_number: string
+}
+
 export interface RepPaymentPreviewRow {
   rep_uuid: string
   docto_uuid: string
+  docto_folio: string | null
   num_parcialidad: number
   status: RepPaymentPreviewStatus
+  match_method: RepMatchMethod | null
   imp_pagado: number
   fecha_pago: string | null
   forma_pago_p: string | null
@@ -219,10 +239,13 @@ export interface RepPaymentPreviewRow {
   rep_folio: string | null
   supplier_invoice_id: string | null
   invoice_number: string | null
+  payable_id: string | null
   balance: number | null
   proposed_payment_date: string | null
   proposed_amount: number | null
   proposed_method: string | null
+  backfill_cfdi_uuid?: boolean
+  ambiguous_candidates?: RepAmbiguousCandidate[]
   message?: string
 }
 

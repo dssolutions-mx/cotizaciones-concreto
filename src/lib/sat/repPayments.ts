@@ -2,8 +2,23 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ParsedCfdi, RepPaymentPreviewRow, RepPaymentPreviewStatus } from '@/types/finance'
 import { c_FormaPago } from '@/lib/sat/codigosSat'
 import { syncInvoiceStatusFromPayable } from '@/lib/ap/syncPayableInvoiceStatus'
+import { normalizeCfdiUuid } from '@/lib/sat/normalizeCfdiUuid'
+import {
+  backfillInvoiceCfdiUuid,
+  ensurePayableForInvoice,
+  invoiceBalance,
+  loadInvoicesByCfdiUuids,
+  normalizePayable,
+  resolveRepInvoiceMatch,
+  type InvoiceMatchRow,
+} from '@/lib/sat/repInvoiceMatch'
 
 const TOLERANCE = 0.02
+
+export const REP_APPLICABLE_STATUSES: RepPaymentPreviewStatus[] = [
+  'ready',
+  'match_folio_confirm',
+]
 
 function formaPagoLabel(code: string | null): string | null {
   if (!code) return null
@@ -18,52 +33,56 @@ function repReference(cfdi: ParsedCfdi): string {
   return `REP ${cfdi.uuid.slice(0, 8)}`
 }
 
-type InvoiceRow = {
-  id: string
-  invoice_number: string
-  status: string
-  total: number
-  cfdi_uuid: string | null
-  payable: { id: string; payments?: { amount: number }[] } | { id: string; payments?: { amount: number }[] }[] | null
-  cn_allocations?: { allocated_total: number }[]
+function validateInvoiceForPayment(
+  inv: InvoiceMatchRow,
+  impPagado: number,
+  payableId: string | null,
+): { status: RepPaymentPreviewStatus; message?: string; balance?: number } {
+  if (inv.status === 'void') {
+    return { status: 'invoice_void', message: 'Factura anulada' }
+  }
+  if (inv.status === 'paid') {
+    return { status: 'invoice_paid', message: 'Factura ya marcada como pagada' }
+  }
+  if (!payableId) {
+    return { status: 'no_payable', message: 'Factura sin cuenta por pagar enlazada' }
+  }
+  const invWithPayable: InvoiceMatchRow = {
+    ...inv,
+    payable: { id: payableId, payments: normalizePayable(inv)?.payments ?? [] },
+  }
+  const { balance } = invoiceBalance(invWithPayable)
+  const rounded = Math.round(balance * 100) / 100
+  if (impPagado > rounded + TOLERANCE) {
+    return {
+      status: 'overpayment',
+      message: `Importe REP (${impPagado}) excede saldo (${rounded})`,
+      balance: rounded,
+    }
+  }
+  return { status: 'ready', balance: rounded }
 }
 
-function normalizePayable(inv: InvoiceRow) {
-  const p = inv.payable
-  if (!p) return null
-  return Array.isArray(p) ? p[0] ?? null : p
-}
-
-function invoiceBalance(inv: InvoiceRow): { paid_to_date: number; credit_applied_total: number; balance: number } {
-  const payable = normalizePayable(inv)
-  const payments = payable?.payments ?? []
-  const paid_to_date = payments.reduce((s, p) => s + Number(p.amount ?? 0), 0)
-  const cnAllocs = inv.cn_allocations ?? []
-  const credit_applied_total = cnAllocs.reduce((s, a) => s + Number(a.allocated_total ?? 0), 0)
-  const balance = Number(inv.total) - paid_to_date - credit_applied_total
-  return { paid_to_date, credit_applied_total, balance }
+export type BuildRepPreviewOptions = {
+  companyRfc?: string | null
 }
 
 export async function buildRepPaymentPreview(
   supabase: SupabaseClient,
   cfdis: ParsedCfdi[],
+  options: BuildRepPreviewOptions = {},
 ): Promise<RepPaymentPreviewRow[]> {
-  const doctoUuids = new Set<string>()
-  const repKeys: Array<{ rep: string; docto: string; par: number }> = []
+  const companyRfc = (options.companyRfc ?? '').trim().toUpperCase()
+  const doctoUuids: string[] = []
 
   for (const cfdi of cfdis) {
     if (cfdi.tipo_comprobante !== 'P') continue
     for (const d of cfdi.pagos_doctos) {
-      doctoUuids.add(d.docto_relacionado_uuid)
-      repKeys.push({
-        rep: d.uuid,
-        docto: d.docto_relacionado_uuid,
-        par: d.num_parcialidad,
-      })
+      doctoUuids.push(d.docto_relacionado_uuid)
     }
   }
 
-  if (repKeys.length === 0) return []
+  if (doctoUuids.length === 0) return []
 
   const { data: existingPayments } = await supabase
     .from('payments')
@@ -72,38 +91,27 @@ export async function buildRepPaymentPreview(
 
   const appliedSet = new Set(
     (existingPayments ?? []).map(
-      (p) => `${p.cfdi_rep_uuid}|${p.cfdi_docto_uuid}|${p.cfdi_num_parcialidad}`,
+      (p) =>
+        `${normalizeCfdiUuid(p.cfdi_rep_uuid)}|${normalizeCfdiUuid(p.cfdi_docto_uuid)}|${p.cfdi_num_parcialidad}`,
     ),
   )
 
-  const { data: invoices } = await supabase
-    .from('supplier_invoices')
-    .select(`
-      id, invoice_number, status, total, cfdi_uuid,
-      payable:payables!invoice_id(
-        id,
-        payments:payments!payable_id(amount)
-      ),
-      cn_allocations:credit_note_invoice_allocations(allocated_total)
-    `)
-    .in('cfdi_uuid', [...doctoUuids])
-
-  const invByUuid = new Map<string, InvoiceRow>()
-  for (const inv of invoices ?? []) {
-    if (inv.cfdi_uuid) invByUuid.set(String(inv.cfdi_uuid).toLowerCase(), inv as InvoiceRow)
-  }
-
+  const invByUuid = await loadInvoicesByCfdiUuids(supabase, doctoUuids)
   const rows: RepPaymentPreviewRow[] = []
 
   for (const cfdi of cfdis) {
     if (cfdi.tipo_comprobante !== 'P') continue
+    const receptorOk = !companyRfc || cfdi.receptor_rfc.toUpperCase() === companyRfc
+
     for (const d of cfdi.pagos_doctos) {
       const key = `${d.uuid}|${d.docto_relacionado_uuid}|${d.num_parcialidad}`
       const base: RepPaymentPreviewRow = {
         rep_uuid: d.uuid,
         docto_uuid: d.docto_relacionado_uuid,
+        docto_folio: d.docto_folio ?? null,
         num_parcialidad: d.num_parcialidad,
         status: 'ready',
+        match_method: null,
         imp_pagado: d.imp_pagado,
         fecha_pago: d.fecha_pago,
         forma_pago_p: d.forma_pago_p,
@@ -113,59 +121,102 @@ export async function buildRepPaymentPreview(
         rep_folio: cfdi.folio,
         supplier_invoice_id: null,
         invoice_number: null,
+        payable_id: null,
         balance: null,
         proposed_payment_date: d.fecha_pago,
         proposed_amount: d.imp_pagado,
         proposed_method: formaPagoLabel(d.forma_pago_p),
+        backfill_cfdi_uuid: false,
       }
 
-      if (appliedSet.has(key)) {
+      if (!receptorOk) {
+        rows.push({
+          ...base,
+          status: 'receptor_mismatch',
+          message: `Receptor ${cfdi.receptor_rfc} no coincide con RFC empresa (${companyRfc || 'no configurado'})`,
+        })
+        continue
+      }
+
+      if (appliedSet.has(`${normalizeCfdiUuid(d.uuid)}|${normalizeCfdiUuid(d.docto_relacionado_uuid)}|${d.num_parcialidad}`)) {
         rows.push({ ...base, status: 'already_applied', message: 'Pago REP ya registrado' })
         continue
       }
 
-      const inv = invByUuid.get(d.docto_relacionado_uuid)
-      if (!inv) {
+      const match = await resolveRepInvoiceMatch(
+        supabase,
+        {
+          docto_uuid: d.docto_relacionado_uuid,
+          docto_folio: d.docto_folio ?? null,
+          docto_serie: d.docto_serie ?? null,
+          emisor_rfc: cfdi.emisor_rfc,
+        },
+        invByUuid,
+      )
+
+      if (match.kind === 'not_found') {
+        const folioHint = d.docto_folio ? ` · folio SAT ${d.docto_folio}` : ''
         rows.push({
           ...base,
           status: 'invoice_not_found',
-          message: 'No hay factura con este UUID CFDI',
+          message: `Sin factura con UUID ${d.docto_relacionado_uuid.slice(0, 8)}…${folioHint}`,
         })
         continue
       }
 
-      base.supplier_invoice_id = inv.id
-      base.invoice_number = inv.invoice_number
-
-      if (inv.status === 'void') {
-        rows.push({ ...base, status: 'invoice_void', message: 'Factura anulada' })
-        continue
-      }
-
-      if (inv.status === 'paid') {
-        rows.push({ ...base, status: 'invoice_paid', message: 'Factura ya marcada como pagada' })
-        continue
-      }
-
-      const payable = normalizePayable(inv)
-      if (!payable?.id) {
-        rows.push({ ...base, status: 'no_payable', message: 'Factura sin cuenta por pagar enlazada' })
-        continue
-      }
-
-      const { balance } = invoiceBalance(inv)
-      base.balance = Math.round(balance * 100) / 100
-
-      if (d.imp_pagado > balance + TOLERANCE) {
+      if (match.kind === 'sat_without_invoice') {
         rows.push({
           ...base,
-          status: 'overpayment',
-          message: `Importe REP (${d.imp_pagado}) excede saldo (${base.balance})`,
+          status: 'sat_without_invoice',
+          message: 'CFDI de ingreso en inventario SAT, sin factura en CxP',
         })
         continue
       }
 
-      rows.push({ ...base, status: 'ready' })
+      if (match.kind === 'ambiguous') {
+        rows.push({
+          ...base,
+          status: 'ambiguous_match',
+          match_method: 'ambiguous',
+          ambiguous_candidates: match.candidates,
+          message: `${match.candidates.length} facturas posibles — seleccione una`,
+        })
+        continue
+      }
+
+      const inv = match.invoice
+      base.supplier_invoice_id = inv.id
+      base.invoice_number = inv.invoice_number
+      base.match_method = match.method
+      base.backfill_cfdi_uuid = match.backfill_cfdi_uuid
+
+      const payableId = normalizePayable(inv)?.id ?? null
+      base.payable_id = payableId
+      if (!payableId) {
+        rows.push({
+          ...base,
+          status: 'no_payable',
+          message: 'Sin CxP enlazada — se intentará crear al aplicar el pago',
+        })
+        continue
+      }
+
+      const previewStatus =
+        match.method === 'folio' || match.method === 'sat_bridge' ? 'match_folio_confirm' : 'ready'
+
+      const validation = validateInvoiceForPayment(inv, d.imp_pagado, payableId)
+      if (validation.status !== 'ready') {
+        rows.push({
+          ...base,
+          status: validation.status,
+          message: validation.message,
+          balance: validation.balance ?? null,
+        })
+        continue
+      }
+
+      base.balance = validation.balance ?? null
+      rows.push({ ...base, status: previewStatus })
     }
   }
 
@@ -176,6 +227,8 @@ export type RepPaymentApplyItem = {
   rep_uuid: string
   docto_uuid: string
   num_parcialidad: number
+  /** When preview was ambiguous_match, user-selected invoice */
+  supplier_invoice_id?: string
 }
 
 export function satRowsToParsedCfdis(
@@ -191,7 +244,7 @@ export function satRowsToParsedCfdis(
   }>,
 ): ParsedCfdi[] {
   return rows.map((row) => ({
-    uuid: row.uuid,
+    uuid: normalizeCfdiUuid(row.uuid) ?? row.uuid,
     serie: row.serie,
     folio: row.folio,
     tipo_comprobante: 'P',
@@ -226,12 +279,13 @@ export async function applyRepPayments(
   supabase: SupabaseClient,
   userId: string,
   items: RepPaymentApplyItem[],
+  options: { plantIdScope?: string | null } = {},
 ): Promise<{ applied: number; skipped: number; errors: Array<{ key: string; message: string }> }> {
   let applied = 0
   let skipped = 0
   const errors: Array<{ key: string; message: string }> = []
 
-  const repUuids = [...new Set(items.map((i) => i.rep_uuid))]
+  const repUuids = [...new Set(items.map((i) => normalizeCfdiUuid(i.rep_uuid) ?? i.rep_uuid))]
   const { data: satRows } = await supabase
     .from('sat_cfdi_recibidos')
     .select('uuid, serie, folio, fecha_emision, emisor_rfc, emisor_nombre, receptor_rfc, pagos_doctos')
@@ -241,39 +295,116 @@ export async function applyRepPayments(
     satRowsToParsedCfdis(satRows ?? []).map((c) => [c.uuid, c]),
   )
 
-  const preview = await buildRepPaymentPreview(
-    supabase,
-    [...cfdiByRepUuid.values()],
-  )
-  const readyMap = new Map(
-    preview
-      .filter((r) => r.status === 'ready')
-      .map((r) => [`${r.rep_uuid}|${r.docto_uuid}|${r.num_parcialidad}`, r]),
+  const preview = await buildRepPaymentPreview(supabase, [...cfdiByRepUuid.values()])
+  const previewMap = new Map(
+    preview.map((r) => [`${r.rep_uuid}|${r.docto_uuid}|${r.num_parcialidad}`, r]),
   )
 
   for (const item of items) {
-    const key = `${item.rep_uuid}|${item.docto_uuid}|${item.num_parcialidad}`
-    const row = readyMap.get(key)
-    if (!row?.supplier_invoice_id) {
+    const repUuid = normalizeCfdiUuid(item.rep_uuid) ?? item.rep_uuid
+    const doctoUuid = normalizeCfdiUuid(item.docto_uuid) ?? item.docto_uuid
+    const key = `${repUuid}|${doctoUuid}|${item.num_parcialidad}`
+    let row = previewMap.get(key)
+
+    if (item.supplier_invoice_id && row?.status === 'ambiguous_match') {
+      const candidate = row.ambiguous_candidates?.find((c) => c.id === item.supplier_invoice_id)
+      if (candidate) {
+        row = {
+          ...row,
+          status: 'match_folio_confirm',
+          supplier_invoice_id: item.supplier_invoice_id,
+          invoice_number: candidate.invoice_number,
+          backfill_cfdi_uuid: true,
+        }
+      }
+    }
+
+    if (!row || !REP_APPLICABLE_STATUSES.includes(row.status)) {
       skipped++
       errors.push({ key, message: 'Fila no elegible para aplicar' })
       continue
     }
 
-    const cfdi = cfdiByRepUuid.get(item.rep_uuid)
+    const invoiceId = item.supplier_invoice_id ?? row.supplier_invoice_id
+    if (!invoiceId) {
+      skipped++
+      errors.push({ key, message: 'Factura no resuelta' })
+      continue
+    }
+
+    if (options.plantIdScope) {
+      const { data: invPlant } = await supabase
+        .from('supplier_invoices')
+        .select('plant_id')
+        .eq('id', invoiceId)
+        .maybeSingle()
+      if (invPlant?.plant_id && invPlant.plant_id !== options.plantIdScope) {
+        skipped++
+        errors.push({ key, message: 'Factura fuera de la planta asignada' })
+        continue
+      }
+    }
+
+    const cfdi = cfdiByRepUuid.get(repUuid)
     if (!cfdi) {
       skipped++
       errors.push({ key, message: 'REP no encontrado en el lote' })
       continue
     }
 
-    const { data: payable } = await supabase
-      .from('payables')
-      .select('id')
-      .eq('invoice_id', row.supplier_invoice_id)
-      .maybeSingle()
+    const docto = cfdi.pagos_doctos.find(
+      (p) =>
+        p.docto_relacionado_uuid === doctoUuid && p.num_parcialidad === item.num_parcialidad,
+    )
 
-    if (!payable?.id) {
+    if (row.backfill_cfdi_uuid && docto) {
+      await backfillInvoiceCfdiUuid(
+        supabase,
+        invoiceId,
+        doctoUuid,
+        cfdi.emisor_rfc,
+        docto.docto_folio ?? null,
+        docto.docto_serie ?? null,
+      )
+    }
+
+    let payableId = row.payable_id
+    if (!payableId) {
+      const { data: payable } = await supabase
+        .from('payables')
+        .select('id')
+        .eq('invoice_id', invoiceId)
+        .maybeSingle()
+      payableId = payable?.id ?? null
+    }
+
+    if (!payableId) {
+      const { data: invRow } = await supabase
+        .from('supplier_invoices')
+        .select(`
+          id, invoice_number, status, total, plant_id, supplier_group_id,
+          cfdi_uuid, cfdi_folio, cfdi_serie, cfdi_emisor_rfc,
+          payable:payables!invoice_id(id),
+          cn_allocations:credit_note_invoice_allocations(allocated_total)
+        `)
+        .eq('id', invoiceId)
+        .maybeSingle()
+      if (invRow) {
+        const healed = await ensurePayableForInvoice(
+          supabase,
+          invRow as import('@/lib/sat/repInvoiceMatch').InvoiceMatchRow,
+          userId,
+        )
+        payableId = healed.payableId
+        if (!healed.payableId && healed.error) {
+          skipped++
+          errors.push({ key, message: healed.error })
+          continue
+        }
+      }
+    }
+
+    if (!payableId) {
       skipped++
       errors.push({ key, message: 'Payable no encontrado' })
       continue
@@ -281,15 +412,15 @@ export async function applyRepPayments(
 
     const paymentDate = row.proposed_payment_date ?? cfdi.fecha_emision.slice(0, 10)
     const { error: insertErr } = await supabase.from('payments').insert({
-      payable_id: payable.id,
+      payable_id: payableId,
       payment_date: paymentDate,
       amount: row.proposed_amount ?? row.imp_pagado,
       method: row.proposed_method ?? formaPagoLabel(row.forma_pago_p),
       reference: repReference(cfdi),
       created_by: userId,
       source: 'sat_rep',
-      cfdi_rep_uuid: item.rep_uuid,
-      cfdi_docto_uuid: item.docto_uuid,
+      cfdi_rep_uuid: repUuid,
+      cfdi_docto_uuid: doctoUuid,
       cfdi_num_parcialidad: item.num_parcialidad,
     })
 
@@ -304,7 +435,7 @@ export async function applyRepPayments(
       continue
     }
 
-    await syncInvoiceStatusFromPayable(supabase, payable.id)
+    await syncInvoiceStatusFromPayable(supabase, payableId)
     applied++
   }
 
@@ -315,8 +446,10 @@ export function skippedNotPRow(file: string): RepPaymentPreviewRow {
   return {
     rep_uuid: '',
     docto_uuid: '',
+    docto_folio: null,
     num_parcialidad: 0,
     status: 'skipped_not_p' as RepPaymentPreviewStatus,
+    match_method: null,
     imp_pagado: 0,
     fecha_pago: null,
     forma_pago_p: null,
@@ -326,6 +459,7 @@ export function skippedNotPRow(file: string): RepPaymentPreviewRow {
     rep_folio: null,
     supplier_invoice_id: null,
     invoice_number: null,
+    payable_id: null,
     balance: null,
     proposed_payment_date: null,
     proposed_amount: null,

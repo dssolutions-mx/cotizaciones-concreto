@@ -1,4 +1,5 @@
 import type { ParsedCfdi } from '@/types/finance'
+import { normalizeCfdiUuid } from '@/lib/sat/normalizeCfdiUuid'
 
 export type SatCfdiImportSource = 'manual_zip' | 'manual_xml' | 'pac'
 
@@ -8,7 +9,7 @@ export function parsedCfdiToSatRow(
   source: SatCfdiImportSource,
 ) {
   return {
-    uuid: cfdi.uuid,
+    uuid: normalizeCfdiUuid(cfdi.uuid) ?? cfdi.uuid,
     receptor_rfc: cfdi.receptor_rfc,
     emisor_rfc: cfdi.emisor_rfc,
     emisor_nombre: cfdi.emisor_nombre,

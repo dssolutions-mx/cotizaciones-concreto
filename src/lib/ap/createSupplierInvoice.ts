@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { normalizeCfdiUuid } from '@/lib/sat/normalizeCfdiUuid'
 import {
   buildInvoiceTotalsFromBody,
   deriveInvoiceSource,
@@ -123,11 +124,12 @@ export async function createSupplierInvoice(
     }
   }
 
-  if (cfdi_uuid) {
+  const normalizedCfdiUuid = normalizeCfdiUuid(cfdi_uuid)
+  if (normalizedCfdiUuid) {
     const { data: dup } = await supabase
       .from('supplier_invoices')
       .select('id, invoice_number')
-      .eq('cfdi_uuid', cfdi_uuid)
+      .eq('cfdi_uuid', normalizedCfdiUuid)
       .maybeSingle()
     if (dup) {
       return {
@@ -325,7 +327,7 @@ export async function createSupplierInvoice(
       notes,
       document_url,
       xml_url,
-      cfdi_uuid: cfdi_uuid || null,
+      cfdi_uuid: normalizedCfdiUuid,
       cfdi_serie: cfdi_serie || null,
       cfdi_folio: cfdi_folio || null,
       cfdi_forma_pago: cfdi_forma_pago || null,

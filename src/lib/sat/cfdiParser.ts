@@ -161,6 +161,8 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
         pagos_doctos.push({
           uuid: repUuid,
           docto_relacionado_uuid: docUuid.toLowerCase(),
+          docto_folio: str(d?.['@_Folio']),
+          docto_serie: str(d?.['@_Serie']),
           imp_pagado: num(d?.['@_ImpPagado']),
           num_parcialidad: num(d?.['@_NumParcialidad'], 1),
           fecha_pago,

@@ -8,7 +8,12 @@ import {
 } from '@/components/ui/select'
 import { format, isBefore, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ChevronDown, ChevronRight, FileText, ExternalLink, Package, Truck, Download, Receipt, Pencil } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, FileText, ExternalLink, Package, Truck, Download, Receipt, Pencil, FileUp } from 'lucide-react'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
+import ComplementosDePagoPanel from './ComplementosDePagoPanel'
+import BulkCreditNoteDialog from './BulkCreditNoteDialog'
 import { cn } from '@/lib/utils'
 import { usePlantContext } from '@/contexts/PlantContext'
 import type { SupplierInvoice, InvoiceStatus } from '@/types/finance'
@@ -95,6 +100,8 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
   const [editInvoice, setEditInvoice] = useState<InvoiceWithEnrichment | null>(null)
   // CN drawer: tracks which supplier group + optional pre-selected invoice
   const [cnContext, setCnContext] = useState<{ groupId: string; plantId: string; preselectedId?: string } | null>(null)
+  const [repDialogOpen, setRepDialogOpen] = useState(false)
+  const [bulkCnDialogOpen, setBulkCnDialogOpen] = useState(false)
   const [creditNoteAllocs, setCreditNoteAllocs] = useState<Record<string, CreditNoteAllocation[]>>({}) // keyed by invoice id
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
@@ -219,6 +226,22 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
         </Button>
 
         <div className="ml-auto flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1 border-sky-300 text-sky-800"
+            onClick={() => setRepDialogOpen(true)}
+          >
+            <FileUp className="h-3.5 w-3.5" /> Complementos (ZIP/XML)
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs gap-1 border-violet-300 text-violet-800"
+            onClick={() => setBulkCnDialogOpen(true)}
+          >
+            <Receipt className="h-3.5 w-3.5" /> NC masivas (ZIP/XML)
+          </Button>
           <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void exportExcel()} disabled={invoices.length === 0}>
             <Download className="h-3.5 w-3.5" /> Excel
           </Button>
@@ -600,6 +623,28 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
           setEditInvoice(null)
           setReloadKey(k => k + 1)
         }}
+      />
+
+      <Dialog open={repDialogOpen} onOpenChange={setRepDialogOpen}>
+        <DialogContent className="max-w-[min(96vw,1100px)] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Importar complementos de pago</DialogTitle>
+          </DialogHeader>
+          <ComplementosDePagoPanel
+            compact
+            onApplied={() => {
+              setRepDialogOpen(false)
+              setReloadKey((k) => k + 1)
+            }}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <BulkCreditNoteDialog
+        open={bulkCnDialogOpen}
+        onOpenChange={setBulkCnDialogOpen}
+        workspacePlantId={plantFilter}
+        onSuccess={() => setReloadKey((k) => k + 1)}
       />
 
       {/* Credit note drawer */}
