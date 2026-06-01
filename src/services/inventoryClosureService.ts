@@ -3,6 +3,7 @@ import { ledgerAuditAdjustmentTotalsByMaterialIds } from '@/lib/inventory/ledger
 import { buildTheoreticalBridgeFromFlow } from '@/lib/inventory/theoreticalBridge';
 import { InventoryDashboardService } from './inventoryDashboardService';
 import { resolveClosureVolumetricWeight, convertToKg } from '@/lib/inventory/closureVolumetricWeight';
+import { computeClosureVarianceFields } from '@/lib/inventory/closureVariance';
 import { computeInventoryAfter } from '@/lib/inventory/adjustmentModel';
 import { insertAdjustmentFifoLayer } from '@/lib/inventory/insertAdjustmentFifoLayer';
 import { consumeFifoForClosureAdjustment } from '@/lib/inventory/consumeFifoForClosureAdjustment';
@@ -565,6 +566,89 @@ export class InventoryClosureService {
     return written;
   }
 
+  /**
+   * Re-reads live theoretical bridge into the closure snapshot and recomputes
+   * variance / justification flags from existing physical counts (unchanged).
+   */
+  async resyncTheoreticalAndVariances(closureId: string): Promise<{
+    theoretical_rows_updated: number;
+    variance_rows_updated: number;
+  }> {
+    const { data: closure } = await this.supabase
+      .from('inventory_closures')
+      .select('id, status, plant_id, period_start, period_end, variance_threshold_pct')
+      .eq('id', closureId)
+      .single();
+
+    if (!closure) throw new Error('Cierre no encontrado');
+    if (closure.status === 'sealed' || closure.status === 'cancelled') {
+      throw new Error('No se puede modificar un cierre sellado o cancelado');
+    }
+
+    const theoreticalRowsUpdated = await this.syncTheoreticalSnapshotNumbers(
+      closureId,
+      closure.plant_id,
+      closure.period_start,
+      closure.period_end,
+    );
+
+    const varianceRowsUpdated = await this.recalculateClosureVariances(
+      closureId,
+      Number(closure.variance_threshold_pct ?? 2),
+    );
+
+    return {
+      theoretical_rows_updated: theoreticalRowsUpdated,
+      variance_rows_updated: varianceRowsUpdated,
+    };
+  }
+
+  private async recalculateClosureVariances(
+    closureId: string,
+    thresholdPct: number,
+  ): Promise<number> {
+    const { data: rows, error } = await this.supabase
+      .from('inventory_closure_materials')
+      .select('id, material_id, physical_count_kg, theoretical_final_kg')
+      .eq('closure_id', closureId)
+      .not('physical_count_kg', 'is', null);
+
+    if (error) throw new Error(`Error al cargar conteos: ${error.message}`);
+    if (!rows?.length) return 0;
+
+    let updated = 0;
+    const now = new Date().toISOString();
+
+    for (const row of rows as Array<{
+      id: string
+      physical_count_kg: number
+      theoretical_final_kg: number | null
+    }>) {
+      const physicalKg = Number(row.physical_count_kg);
+      const theoretical = Number(row.theoretical_final_kg ?? 0);
+      const varianceFields = computeClosureVarianceFields(
+        physicalKg,
+        theoretical,
+        thresholdPct,
+      );
+
+      const { error: updateError } = await this.supabase
+        .from('inventory_closure_materials')
+        .update({
+          ...varianceFields,
+          updated_at: now,
+        })
+        .eq('id', row.id);
+
+      if (updateError) {
+        throw new Error(`Error al recalcular varianza: ${updateError.message}`);
+      }
+      updated += 1;
+    }
+
+    return updated;
+  }
+
   async confirmTheoreticalReview(closureId: string): Promise<void> {
     const { data: closure } = await this.supabase
       .from('inventory_closures')
@@ -643,13 +727,7 @@ export class InventoryClosureService {
     const rows = upserts.map((u) => {
       const theoretical = theoreticalMap.get(u.material_id) ?? 0;
       const physKg = u.physKg;
-      const varianceKg = physKg != null ? physKg - theoretical : null;
-      const variancePct =
-        varianceKg != null && theoretical !== 0
-          ? (varianceKg / Math.abs(theoretical)) * 100
-          : null;
-      const requiresJustification =
-        variancePct != null && Math.abs(variancePct) > thresholdPct;
+      const varianceFields = computeClosureVarianceFields(physKg, theoretical, thresholdPct);
 
       return {
         closure_id: closureId,
@@ -660,9 +738,9 @@ export class InventoryClosureService {
         volumetric_weight_source: u.volumetric_weight_source ?? null,
         quality_study_id: u.quality_study_id ?? null,
         physical_count_kg: physKg,
-        variance_kg: varianceKg,
-        variance_pct: variancePct,
-        requires_justification: requiresJustification,
+        variance_kg: varianceFields.variance_kg,
+        variance_pct: varianceFields.variance_pct,
+        requires_justification: varianceFields.requires_justification,
         updated_at: new Date().toISOString(),
       };
     });

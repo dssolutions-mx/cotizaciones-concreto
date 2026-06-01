@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Button } from '@/components/ui/button'
-import { ArrowRight, TrendingUp, TrendingDown, Minus, ScanLine } from 'lucide-react'
+import { ArrowRight, TrendingUp, TrendingDown, Minus, ScanLine, RefreshCw } from 'lucide-react'
 import type { InventoryClosureMaterial } from '@/types/inventoryClosure'
 
 function fmtKg(n: number | null | undefined) {
@@ -15,6 +15,8 @@ interface Props {
   thresholdPct: number
   onConfirm: () => void
   onEditPhysicalCount?: () => void
+  onResyncTheoretical?: () => void
+  resyncingTheoretical?: boolean
   saving: boolean
 }
 
@@ -23,6 +25,8 @@ export default function ReconciliationStep({
   thresholdPct,
   onConfirm,
   onEditPhysicalCount,
+  onResyncTheoretical,
+  resyncingTheoretical = false,
   saving,
 }: Props) {
   const withVariance = materials.filter((m) => Math.abs(m.variance_kg ?? 0) > 0.001)
@@ -111,19 +115,31 @@ export default function ReconciliationStep({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {onEditPhysicalCount ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onEditPhysicalCount}
-            className="gap-2"
-          >
-            <ScanLine className="h-4 w-4" />
-            Editar conteo físico
-          </Button>
-        ) : (
-          <span />
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {onResyncTheoretical ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onResyncTheoretical}
+              disabled={resyncingTheoretical || saving}
+              className="gap-2"
+            >
+              <RefreshCw className={resyncingTheoretical ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+              {resyncingTheoretical ? 'Recalculando teórico...' : 'Recalcular teórico'}
+            </Button>
+          ) : null}
+          {onEditPhysicalCount ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onEditPhysicalCount}
+              className="gap-2"
+            >
+              <ScanLine className="h-4 w-4" />
+              Editar conteo físico
+            </Button>
+          ) : null}
+        </div>
         <Button
           onClick={onConfirm}
           disabled={saving}

@@ -74,6 +74,8 @@ export default function ClosureWizardPage() {
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [physicalCountReturnStep, setPhysicalCountReturnStep] = useState<ClosureStep | null>(null)
+  const [resyncingTheoretical, setResyncingTheoretical] = useState(false)
+  const [resyncTheoreticalError, setResyncTheoreticalError] = useState<string | null>(null)
 
   const canManage = canAdminInventoryClosure(profile?.role)
   const canDelete = canDeleteInventoryClosure(profile?.role)
@@ -173,6 +175,26 @@ export default function ClosureWizardPage() {
       setPhysicalCountReturnStep(null)
     }
     setActiveStep(step)
+  }
+
+  async function handleResyncTheoretical() {
+    setResyncTheoreticalError(null)
+    setResyncingTheoretical(true)
+    try {
+      const res = await fetch(`/api/inventory/closures/${closureId}/resync-theoretical`, {
+        method: 'POST',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Error al recalcular teórico')
+      await fetchDetail()
+      if (detail?.status === 'draft') {
+        await loadTheoreticalReview()
+      }
+    } catch (e) {
+      setResyncTheoreticalError((e as Error).message)
+    } finally {
+      setResyncingTheoretical(false)
+    }
   }
 
   async function handleConfirmTheoretical() {
@@ -398,6 +420,12 @@ export default function ClosureWizardPage() {
         </p>
       )}
 
+      {resyncTheoreticalError && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {resyncTheoreticalError}
+        </p>
+      )}
+
       {!isSealed && !isCancelled && (
         <p className="text-xs text-stone-500 -mt-2">
           Usa <strong>Excel preliminar</strong> para compartir el puente teórico, consumos y conciliación con tu
@@ -467,6 +495,8 @@ export default function ClosureWizardPage() {
               saving={false}
               onConfirm={() => setActiveStep('justification')}
               onEditPhysicalCount={() => goToPhysicalCountForEdit('reconciliation')}
+              onResyncTheoretical={canManage ? handleResyncTheoretical : undefined}
+              resyncingTheoretical={resyncingTheoretical}
             />
           )}
 
