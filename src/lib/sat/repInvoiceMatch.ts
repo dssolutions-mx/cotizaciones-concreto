@@ -202,7 +202,12 @@ export async function resolveRepInvoiceMatch(
     if (candidates.length > 1) {
       return {
         kind: 'ambiguous',
-        candidates: candidates.map((c) => ({ id: c.id, invoice_number: c.invoice_number })),
+        candidates: candidates.map((c) => ({
+          id: c.id,
+          invoice_number: c.invoice_number,
+          cfdi_uuid: c.cfdi_uuid,
+          balance: invoiceBalance(c).balance,
+        })),
       }
     }
     return { kind: 'sat_without_invoice' }
@@ -223,7 +228,12 @@ export async function resolveRepInvoiceMatch(
   if (folioCandidates.length > 1) {
     return {
       kind: 'ambiguous',
-      candidates: folioCandidates.map((c) => ({ id: c.id, invoice_number: c.invoice_number })),
+      candidates: folioCandidates.map((c) => ({
+        id: c.id,
+        invoice_number: c.invoice_number,
+        cfdi_uuid: c.cfdi_uuid,
+        balance: invoiceBalance(c).balance,
+      })),
     }
   }
 

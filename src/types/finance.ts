@@ -221,6 +221,36 @@ export type RepPaymentPreviewStatus =
 export interface RepAmbiguousCandidate {
   id: string
   invoice_number: string
+  cfdi_uuid?: string | null
+  balance?: number | null
+}
+
+export type CfdiOpenInvoiceHint = {
+  id: string
+  invoice_number: string
+  cfdi_uuid: string | null
+  cfdi_folio: string | null
+  cfdi_serie: string | null
+  status: string
+  balance: number | null
+  plant_id: string
+}
+
+export type CfdiRelatedUuidHint = {
+  uuid: string
+  tipo_relacion: string | null
+  matched_in_cxp?: boolean
+}
+
+export type CfdiMatchDiagnostics = {
+  criteria_summary: string
+  steps: string[]
+  searched_uuids: string[]
+  searched_folio: string | null
+  emisor_rfc: string
+  supplier_group_name: string | null
+  related_uuids: CfdiRelatedUuidHint[]
+  open_invoices_same_supplier: CfdiOpenInvoiceHint[]
 }
 
 export interface RepPaymentPreviewRow {
@@ -246,6 +276,9 @@ export interface RepPaymentPreviewRow {
   proposed_method: string | null
   backfill_cfdi_uuid?: boolean
   ambiguous_candidates?: RepAmbiguousCandidate[]
+  match_diagnostics?: CfdiMatchDiagnostics
+  receptor_rfc?: string | null
+  file_name?: string | null
   message?: string
 }
 

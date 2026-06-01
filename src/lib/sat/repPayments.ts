@@ -4,6 +4,10 @@ import { c_FormaPago } from '@/lib/sat/codigosSat'
 import { syncInvoiceStatusFromPayable } from '@/lib/ap/syncPayableInvoiceStatus'
 import { normalizeCfdiUuid } from '@/lib/sat/normalizeCfdiUuid'
 import {
+  buildRepMatchDiagnostics,
+  loadSupplierContextByEmisorRfc,
+} from '@/lib/ap/cfdiMatchDiagnostics'
+import {
   backfillInvoiceCfdiUuid,
   ensurePayableForInvoice,
   invoiceBalance,
@@ -98,6 +102,39 @@ export async function buildRepPaymentPreview(
 
   const invByUuid = await loadInvoicesByCfdiUuids(supabase, doctoUuids)
   const rows: RepPaymentPreviewRow[] = []
+  const supplierCtxCache = new Map<
+    string,
+    Awaited<ReturnType<typeof loadSupplierContextByEmisorRfc>>
+  >()
+
+  const supplierCtx = async (emisorRfc: string) => {
+    if (!supplierCtxCache.has(emisorRfc)) {
+      supplierCtxCache.set(emisorRfc, await loadSupplierContextByEmisorRfc(supabase, emisorRfc))
+    }
+    return supplierCtxCache.get(emisorRfc)!
+  }
+
+  const enrichRow = async (
+    row: RepPaymentPreviewRow,
+    cfdi: ParsedCfdi,
+  ): Promise<RepPaymentPreviewRow> => {
+    const ctx = await supplierCtx(row.emisor_rfc)
+    return {
+      ...row,
+      receptor_rfc: cfdi.receptor_rfc,
+      match_diagnostics: buildRepMatchDiagnostics({
+        emisor_rfc: row.emisor_rfc,
+        emisor_nombre: row.emisor_nombre,
+        docto_uuid: row.docto_uuid,
+        docto_folio: row.docto_folio,
+        status: row.status,
+        match_method: row.match_method,
+        supplierGroupName: ctx.groupName,
+        openInvoices: ctx.openInvoices,
+        companyRfc,
+      }),
+    }
+  }
 
   for (const cfdi of cfdis) {
     if (cfdi.tipo_comprobante !== 'P') continue
@@ -130,16 +167,26 @@ export async function buildRepPaymentPreview(
       }
 
       if (!receptorOk) {
-        rows.push({
-          ...base,
-          status: 'receptor_mismatch',
-          message: `Receptor ${cfdi.receptor_rfc} no coincide con RFC empresa (${companyRfc || 'no configurado'})`,
-        })
+        rows.push(
+          await enrichRow(
+            {
+              ...base,
+              status: 'receptor_mismatch',
+              message: `Receptor ${cfdi.receptor_rfc} no coincide con RFC empresa (${companyRfc || 'no configurado'})`,
+            },
+            cfdi,
+          ),
+        )
         continue
       }
 
       if (appliedSet.has(`${normalizeCfdiUuid(d.uuid)}|${normalizeCfdiUuid(d.docto_relacionado_uuid)}|${d.num_parcialidad}`)) {
-        rows.push({ ...base, status: 'already_applied', message: 'Pago REP ya registrado' })
+        rows.push(
+          await enrichRow(
+            { ...base, status: 'already_applied', message: 'Pago REP ya registrado' },
+            cfdi,
+          ),
+        )
         continue
       }
 
@@ -156,31 +203,46 @@ export async function buildRepPaymentPreview(
 
       if (match.kind === 'not_found') {
         const folioHint = d.docto_folio ? ` · folio SAT ${d.docto_folio}` : ''
-        rows.push({
-          ...base,
-          status: 'invoice_not_found',
-          message: `Sin factura con UUID ${d.docto_relacionado_uuid.slice(0, 8)}…${folioHint}`,
-        })
+        rows.push(
+          await enrichRow(
+            {
+              ...base,
+              status: 'invoice_not_found',
+              message: `Sin factura con UUID ${d.docto_relacionado_uuid.slice(0, 8)}…${folioHint}`,
+            },
+            cfdi,
+          ),
+        )
         continue
       }
 
       if (match.kind === 'sat_without_invoice') {
-        rows.push({
-          ...base,
-          status: 'sat_without_invoice',
-          message: 'CFDI de ingreso en inventario SAT, sin factura en CxP',
-        })
+        rows.push(
+          await enrichRow(
+            {
+              ...base,
+              status: 'sat_without_invoice',
+              message: 'CFDI de ingreso en inventario SAT, sin factura en CxP',
+            },
+            cfdi,
+          ),
+        )
         continue
       }
 
       if (match.kind === 'ambiguous') {
-        rows.push({
-          ...base,
-          status: 'ambiguous_match',
-          match_method: 'ambiguous',
-          ambiguous_candidates: match.candidates,
-          message: `${match.candidates.length} facturas posibles — seleccione una`,
-        })
+        rows.push(
+          await enrichRow(
+            {
+              ...base,
+              status: 'ambiguous_match',
+              match_method: 'ambiguous',
+              ambiguous_candidates: match.candidates,
+              message: `${match.candidates.length} facturas posibles — seleccione una`,
+            },
+            cfdi,
+          ),
+        )
         continue
       }
 
@@ -193,11 +255,16 @@ export async function buildRepPaymentPreview(
       const payableId = normalizePayable(inv)?.id ?? null
       base.payable_id = payableId
       if (!payableId) {
-        rows.push({
-          ...base,
-          status: 'no_payable',
-          message: 'Sin CxP enlazada — se intentará crear al aplicar el pago',
-        })
+        rows.push(
+          await enrichRow(
+            {
+              ...base,
+              status: 'no_payable',
+              message: 'Sin CxP enlazada — se intentará crear al aplicar el pago',
+            },
+            cfdi,
+          ),
+        )
         continue
       }
 
@@ -206,17 +273,22 @@ export async function buildRepPaymentPreview(
 
       const validation = validateInvoiceForPayment(inv, d.imp_pagado, payableId)
       if (validation.status !== 'ready') {
-        rows.push({
-          ...base,
-          status: validation.status,
-          message: validation.message,
-          balance: validation.balance ?? null,
-        })
+        rows.push(
+          await enrichRow(
+            {
+              ...base,
+              status: validation.status,
+              message: validation.message,
+              balance: validation.balance ?? null,
+            },
+            cfdi,
+          ),
+        )
         continue
       }
 
       base.balance = validation.balance ?? null
-      rows.push({ ...base, status: previewStatus })
+      rows.push(await enrichRow({ ...base, status: previewStatus }, cfdi))
     }
   }
 
