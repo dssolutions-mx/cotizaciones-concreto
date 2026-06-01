@@ -36,6 +36,78 @@ export type MaintenancePreview = {
     duplicate_groups_to_merge: number
     empty_groups: number
   }
+  plan: MaintenanceExecutionPlan
+}
+
+export type SupplierForPlan = {
+  id: string
+  name: string
+  group_id: string | null
+  plant_id: string | null
+  provider_number: number | null
+}
+
+export type GroupPlanSnapshot = {
+  id: string
+  name: string
+  rfc: string | null
+  supplier_count: number
+  invoice_count: number
+  credit_note_count: number
+}
+
+export type SupplierRelinkPreview = {
+  supplier_id: string
+  supplier_name: string
+  plant_id: string | null
+  provider_number: number | null
+  from_group_id: string
+  from_group_name: string
+  to_group_id: string
+  to_group_name: string
+}
+
+export type MergeClusterPlan = {
+  normalized_name: string
+  canonical: GroupPlanSnapshot
+  /** RFC on canonical after merge (null = stays without RFC). */
+  rfc_after_merge: string | null
+  duplicates: GroupPlanSnapshot[]
+  suppliers_to_relink: SupplierRelinkPreview[]
+  invoices_to_relink: number
+  credit_notes_to_relink: number
+  warnings: string[]
+}
+
+export type RfcBackfillPlan = {
+  group_id: string
+  group_name: string
+  rfc: string
+  invoice_count: number
+  source: 'invoices' | 'merge'
+}
+
+export type DeactivateGroupPlan = {
+  group_id: string
+  group_name: string
+  rfc: string | null
+  reason: 'merged_duplicate' | 'empty_unused'
+}
+
+export type MaintenanceExecutionPlan = {
+  merge_clusters: MergeClusterPlan[]
+  rfc_backfills: RfcBackfillPlan[]
+  deactivations: DeactivateGroupPlan[]
+  totals: {
+    groups_merged_away: number
+    suppliers_relinked: number
+    invoices_relinked: number
+    credit_notes_relinked: number
+    rfc_updates: number
+    groups_deactivated: number
+  }
+  warnings: string[]
+  has_actions: boolean
 }
 
 export type MaintenanceResult = {
@@ -106,7 +178,194 @@ function distinctRfcsFromInvoices(
   return { suggested: null, conflict: true }
 }
 
-export function buildMaintenancePreview(groups: EnrichedSupplierGroup[]): MaintenancePreview {
+function toSnapshot(g: EnrichedSupplierGroup): GroupPlanSnapshot {
+  return {
+    id: g.id,
+    name: g.name,
+    rfc: g.rfc,
+    supplier_count: g.supplier_count,
+    invoice_count: g.invoice_count,
+    credit_note_count: g.credit_note_count,
+  }
+}
+
+function resolveMergedCanonicalRfc(
+  canonical: EnrichedSupplierGroup,
+  cluster: EnrichedSupplierGroup[],
+): string | null {
+  let rfc = normalizeRfc(canonical.rfc)
+  for (const member of cluster) {
+    if (member.id === canonical.id) continue
+    if (!rfc && member.rfc) rfc = normalizeRfc(member.rfc)
+    if (!rfc && member.suggested_rfc) rfc = normalizeRfc(member.suggested_rfc)
+  }
+  if (!rfc && canonical.suggested_rfc) rfc = normalizeRfc(canonical.suggested_rfc)
+  return rfc
+}
+
+export function buildMaintenanceExecutionPlan(
+  groups: EnrichedSupplierGroup[],
+  suppliers: SupplierForPlan[],
+): MaintenanceExecutionPlan {
+  const duplicate_clusters = buildDuplicateClusters(groups)
+
+  const mergedAwayIds = new Set<string>()
+  const canonicalKeptIds = new Set<string>()
+  const merge_clusters: MergeClusterPlan[] = []
+  const globalWarnings: string[] = []
+
+  let suppliersRelinked = 0
+  let invoicesRelinked = 0
+  let creditNotesRelinked = 0
+
+  for (const cluster of duplicate_clusters) {
+    const canonical = cluster.groups.find(g => g.id === cluster.canonical_id)!
+    canonicalKeptIds.add(canonical.id)
+    const duplicates = cluster.groups.filter(g => g.id !== canonical.id)
+    for (const d of duplicates) mergedAwayIds.add(d.id)
+
+    const rfc_after_merge = resolveMergedCanonicalRfc(canonical, cluster.groups)
+    const warnings: string[] = []
+
+    const distinctMemberRfcs = new Set(
+      cluster.groups.map(g => normalizeRfc(g.rfc)).filter((r): r is string => !!r),
+    )
+    if (distinctMemberRfcs.size > 1) {
+      warnings.push(
+        `Hay ${distinctMemberRfcs.size} RFC distintos entre duplicados (${[...distinctMemberRfcs].join(', ')}). Verifique que sea la misma empresa.`,
+      )
+    }
+
+    const suppliers_to_relink: SupplierRelinkPreview[] = []
+    let invCount = 0
+    let cnCount = 0
+
+    for (const dup of duplicates) {
+      invCount += dup.invoice_count
+      cnCount += dup.credit_note_count
+      for (const s of suppliers) {
+        if (s.group_id !== dup.id) continue
+        suppliers_to_relink.push({
+          supplier_id: s.id,
+          supplier_name: s.name,
+          plant_id: s.plant_id,
+          provider_number: s.provider_number,
+          from_group_id: dup.id,
+          from_group_name: dup.name,
+          to_group_id: canonical.id,
+          to_group_name: canonical.name,
+        })
+      }
+    }
+
+    suppliersRelinked += suppliers_to_relink.length
+    invoicesRelinked += invCount
+    creditNotesRelinked += cnCount
+
+    merge_clusters.push({
+      normalized_name: cluster.normalized_name,
+      canonical: toSnapshot(canonical),
+      rfc_after_merge,
+      duplicates: duplicates.map(toSnapshot),
+      suppliers_to_relink,
+      invoices_to_relink: invCount,
+      credit_notes_to_relink: cnCount,
+      warnings,
+    })
+  }
+
+  const rfc_backfills: RfcBackfillPlan[] = []
+  const rfcUpdatedInMerge = new Set<string>()
+
+  for (const m of merge_clusters) {
+    if (m.rfc_after_merge && !m.canonical.rfc) {
+      rfcUpdatedInMerge.add(m.canonical.id)
+    }
+  }
+
+  for (const g of groups) {
+    if (g.rfc || !g.suggested_rfc || g.rfc_conflict || mergedAwayIds.has(g.id)) continue
+    if (rfcUpdatedInMerge.has(g.id)) continue
+    rfc_backfills.push({
+      group_id: g.id,
+      group_name: g.name,
+      rfc: g.suggested_rfc,
+      invoice_count: g.invoice_count,
+      source: 'invoices',
+    })
+  }
+
+  const deactivations: DeactivateGroupPlan[] = []
+
+  for (const m of merge_clusters) {
+    for (const dup of m.duplicates) {
+      deactivations.push({
+        group_id: dup.id,
+        group_name: dup.name,
+        rfc: dup.rfc,
+        reason: 'merged_duplicate',
+      })
+    }
+  }
+
+  const empty_groups = groups.filter(
+    g =>
+      g.supplier_count === 0 &&
+      g.invoice_count === 0 &&
+      g.credit_note_count === 0,
+  )
+
+  for (const g of empty_groups) {
+    if (mergedAwayIds.has(g.id)) continue
+    if (canonicalKeptIds.has(g.id)) continue
+    deactivations.push({
+      group_id: g.id,
+      group_name: g.name,
+      rfc: g.rfc,
+      reason: 'empty_unused',
+    })
+  }
+
+  const rfc_updates =
+    rfc_backfills.length +
+    merge_clusters.filter(m => m.rfc_after_merge && !m.canonical.rfc).length
+
+  for (const g of groups) {
+    if (g.rfc_conflict) {
+      globalWarnings.push(
+        `«${g.name}» tiene facturas con emisores RFC distintos; el RFC no se completará automáticamente.`,
+      )
+    }
+  }
+
+  const totals = {
+    groups_merged_away: mergedAwayIds.size,
+    suppliers_relinked: suppliersRelinked,
+    invoices_relinked: invoicesRelinked,
+    credit_notes_relinked: creditNotesRelinked,
+    rfc_updates,
+    groups_deactivated: deactivations.length,
+  }
+
+  const has_actions =
+    merge_clusters.length > 0 ||
+    rfc_backfills.length > 0 ||
+    deactivations.length > 0
+
+  return {
+    merge_clusters,
+    rfc_backfills,
+    deactivations,
+    totals,
+    warnings: globalWarnings,
+    has_actions,
+  }
+}
+
+export function buildMaintenancePreview(
+  groups: EnrichedSupplierGroup[],
+  suppliers: SupplierForPlan[] = [],
+): MaintenancePreview {
   const duplicate_clusters = buildDuplicateClusters(groups)
   const duplicateIds = new Set(
     duplicate_clusters.flatMap(c => c.groups.filter(g => g.id !== c.canonical_id).map(g => g.id)),
@@ -123,11 +382,14 @@ export function buildMaintenancePreview(groups: EnrichedSupplierGroup[]): Mainte
       g.credit_note_count === 0,
   )
 
+  const plan = buildMaintenanceExecutionPlan(groups, suppliers)
+
   return {
     groups,
     duplicate_clusters,
     missing_rfc_with_suggestion,
     empty_groups,
+    plan,
     stats: {
       total_active: groups.length,
       without_rfc: groups.filter(g => !g.rfc).length,
@@ -136,6 +398,31 @@ export function buildMaintenancePreview(groups: EnrichedSupplierGroup[]): Mainte
       empty_groups: empty_groups.length,
     },
   }
+}
+
+export async function loadSuppliersForGroupPlan(
+  supabase: SupabaseClient,
+  groupIds: string[],
+): Promise<SupplierForPlan[]> {
+  if (groupIds.length === 0) return []
+  const { data, error } = await supabase
+    .from('suppliers')
+    .select('id, name, group_id, plant_id, provider_number')
+    .in('group_id', groupIds)
+    .order('name')
+  if (error) throw error
+  return (data ?? []) as SupplierForPlan[]
+}
+
+export async function loadMaintenancePreview(
+  supabase: SupabaseClient,
+): Promise<MaintenancePreview> {
+  const groups = await loadEnrichedSupplierGroups(supabase)
+  const suppliers = await loadSuppliersForGroupPlan(
+    supabase,
+    groups.map(g => g.id),
+  )
+  return buildMaintenancePreview(groups, suppliers)
 }
 
 export async function loadEnrichedSupplierGroups(
@@ -211,8 +498,8 @@ export async function runSupplierGroupMaintenance(
     deactivate_empty = true,
   } = options
 
-  const enriched = await loadEnrichedSupplierGroups(supabase)
-  const preview = buildMaintenancePreview(enriched)
+  const preview = await loadMaintenancePreview(supabase)
+  const enriched = preview.groups
 
   const result: MaintenanceResult = {
     merged_clusters: 0,

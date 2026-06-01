@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildDuplicateClusters,
+  buildMaintenanceExecutionPlan,
   normalizeGroupName,
   pickCanonicalGroupId,
   type EnrichedSupplierGroup,
@@ -56,5 +57,30 @@ describe('buildDuplicateClusters', () => {
     expect(clusters).toHaveLength(1)
     expect(clusters[0].normalized_name).toBe('PROMEXMA')
     expect(clusters[0].groups).toHaveLength(2)
+  })
+})
+
+describe('buildMaintenanceExecutionPlan', () => {
+  it('lists suppliers to relink into canonical group', () => {
+    const groups = [
+      group({ id: 'keep', name: 'CEMEX', rfc: 'CEM880726UZA', supplier_count: 1, invoice_count: 2 }),
+      group({ id: 'dup', name: 'cemex', supplier_count: 1, invoice_count: 1 }),
+    ]
+    const plan = buildMaintenanceExecutionPlan(groups, [
+      {
+        id: 's1',
+        name: 'Cemex Planta Norte',
+        group_id: 'dup',
+        plant_id: 'p1',
+        provider_number: 10,
+      },
+    ])
+    expect(plan.merge_clusters).toHaveLength(1)
+    expect(plan.merge_clusters[0].canonical.id).toBe('keep')
+    expect(plan.merge_clusters[0].suppliers_to_relink).toHaveLength(1)
+    expect(plan.merge_clusters[0].suppliers_to_relink[0].to_group_id).toBe('keep')
+    expect(plan.totals.suppliers_relinked).toBe(1)
+    expect(plan.totals.invoices_relinked).toBe(1)
+    expect(plan.deactivations.some(d => d.group_id === 'dup')).toBe(true)
   })
 })

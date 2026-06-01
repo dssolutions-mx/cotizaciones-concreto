@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import {
-  buildMaintenancePreview,
   loadEnrichedSupplierGroups,
+  loadMaintenancePreview,
   runSupplierGroupMaintenance,
 } from '@/lib/ap/supplierGroupMaintenance'
 
@@ -32,8 +32,7 @@ export async function GET() {
     const auth = await assertRole(supabase)
     if ('error' in auth) return auth.error
 
-    const groups = await loadEnrichedSupplierGroups(auth.supabase)
-    const preview = buildMaintenancePreview(groups)
+    const preview = await loadMaintenancePreview(auth.supabase)
     return NextResponse.json(preview)
   } catch (err) {
     console.error('/api/ap/supplier-groups/maintenance GET error:', err)
@@ -55,8 +54,7 @@ export async function POST(request: NextRequest) {
       deactivate_empty: body.deactivate_empty !== false,
     })
 
-    const groups = await loadEnrichedSupplierGroups(auth.supabase)
-    const preview = buildMaintenancePreview(groups)
+    const preview = await loadMaintenancePreview(auth.supabase)
 
     return NextResponse.json({ result, preview })
   } catch (err) {

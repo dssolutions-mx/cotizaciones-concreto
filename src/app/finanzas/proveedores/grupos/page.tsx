@@ -22,19 +22,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { cn } from '@/lib/utils'
 import SupplierGroupDialog from '@/components/finanzas/SupplierGroupDialog'
+import SupplierGroupCleanupDialog from '@/components/finanzas/SupplierGroupCleanupDialog'
 import {
   buildDuplicateClusters,
   normalizeGroupName,
@@ -78,7 +69,6 @@ export default function SupplierGroupsPage() {
   const [editGroup, setEditGroup] = useState<EnrichedSupplierGroup | null>(null)
 
   const [cleanupOpen, setCleanupOpen] = useState(false)
-  const [cleanupRunning, setCleanupRunning] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -180,29 +170,6 @@ export default function SupplierGroupsPage() {
     }
   }
 
-  const runCleanup = async () => {
-    setCleanupRunning(true)
-    try {
-      const res = await fetch('/api/ap/supplier-groups/maintenance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Error en limpieza')
-      const r = data.result
-      toast.success(
-        `Limpieza: ${r.merged_clusters} grupos fusionados, ${r.rfc_backfilled} RFC actualizados, ${r.deactivated_groups} inactivos`,
-      )
-      setCleanupOpen(false)
-      await load()
-    } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'No se pudo ejecutar la limpieza')
-    } finally {
-      setCleanupRunning(false)
-    }
-  }
-
   const openCreate = () => {
     setEditGroup(null)
     setDialogMode('create')
@@ -250,10 +217,8 @@ export default function SupplierGroupsPage() {
   }
 
   const stats = maintenance?.stats
-  const needsCleanup =
-    (stats?.duplicate_groups_to_merge ?? 0) > 0 ||
-    (maintenance?.missing_rfc_with_suggestion.length ?? 0) > 0 ||
-    (stats?.empty_groups ?? 0) > 0
+  const plan = maintenance?.plan
+  const needsCleanup = plan?.has_actions ?? false
 
   return (
     <div className="min-w-0 space-y-6">
@@ -264,17 +229,24 @@ export default function SupplierGroupsPage() {
             <div className="text-sm text-amber-950">
               <p className="font-medium">Datos de grupos por ordenar</p>
               <p className="text-amber-900/90 mt-0.5">
-                {stats.duplicate_groups_to_merge > 0 && (
-                  <span>{stats.duplicate_groups_to_merge} duplicados por nombre · </span>
-                )}
-                {maintenance!.missing_rfc_with_suggestion.length > 0 && (
-                  <span>
-                    {maintenance!.missing_rfc_with_suggestion.length} sin RFC (detectable desde facturas) ·{' '}
-                  </span>
-                )}
-                {stats.empty_groups > 0 && (
-                  <span>{stats.empty_groups} vacíos sin uso</span>
-                )}
+                {plan ? (
+                  <>
+                    {plan.totals.groups_merged_away > 0 && (
+                      <span>{plan.totals.groups_merged_away} grupos a fusionar · </span>
+                    )}
+                    {plan.totals.suppliers_relinked > 0 && (
+                      <span>{plan.totals.suppliers_relinked} proveedores a reasignar · </span>
+                    )}
+                    {plan.totals.rfc_updates > 0 && (
+                      <span>{plan.totals.rfc_updates} RFC a completar · </span>
+                    )}
+                    {plan.totals.groups_deactivated > 0 && (
+                      <span>{plan.totals.groups_deactivated} a desactivar</span>
+                    )}
+                  </>
+                ) : null}
+                {' '}
+                <span className="text-amber-800">Abra el plan para ver el detalle.</span>
               </p>
             </div>
           </div>
@@ -284,7 +256,7 @@ export default function SupplierGroupsPage() {
             onClick={() => setCleanupOpen(true)}
           >
             <Sparkles className="h-3.5 w-3.5" />
-            Revisar limpieza
+            Ver plan de limpieza
           </Button>
         </div>
       ) : null}
@@ -578,42 +550,15 @@ export default function SupplierGroupsPage() {
         onSaved={() => void load()}
       />
 
-      <AlertDialog open={cleanupOpen} onOpenChange={setCleanupOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Limpieza automática de grupos</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p>Esta acción:</p>
-                <ul className="list-disc pl-5 space-y-1">
-                  <li>Fusiona grupos con el mismo nombre (conserva el que tiene RFC o más facturas)</li>
-                  <li>Completa RFC faltantes cuando todas las facturas del grupo comparten el mismo emisor</li>
-                  <li>Desactiva grupos vacíos sin proveedores ni facturas</li>
-                </ul>
-                {stats ? (
-                  <p className="pt-1 font-medium text-stone-800">
-                    Impacto estimado: {stats.duplicate_groups_to_merge} fusiones,{' '}
-                    {maintenance?.missing_rfc_with_suggestion.length ?? 0} RFC por completar,{' '}
-                    {stats.empty_groups} vacíos.
-                  </p>
-                ) : null}
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={cleanupRunning}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={cleanupRunning}
-              onClick={e => {
-                e.preventDefault()
-                void runCleanup()
-              }}
-            >
-              {cleanupRunning ? 'Ejecutando…' : 'Ejecutar limpieza'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <SupplierGroupCleanupDialog
+        open={cleanupOpen}
+        onOpenChange={setCleanupOpen}
+        plantMap={plantMap}
+        onCompleted={() => {
+          toast.success('Limpieza aplicada')
+          void load()
+        }}
+      />
     </div>
   )
 }
