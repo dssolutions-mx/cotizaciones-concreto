@@ -213,6 +213,7 @@ export default function CreateSupplierInvoiceDrawer({
   const [groups, setGroups] = useState<SupplierGroup[]>([])
   const [groupId, setGroupId] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
+  const [newGroupRfc, setNewGroupRfc] = useState('')
   const [creatingGroup, setCreatingGroup] = useState(false)
 
   // Fleet supplier group (separate from material supplier)
@@ -277,6 +278,7 @@ export default function CreateSupplierInvoiceDrawer({
     setIsInternal(false)
     setNotes('')
     setNewGroupName('')
+    setNewGroupRfc('')
     setDiscountAmount('')
     setRetentionRows([])
     setCfdiCaptureMode('manual')
@@ -518,19 +520,44 @@ export default function CreateSupplierInvoiceDrawer({
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
   const createGroup = async () => {
-    if (!newGroupName.trim()) return
+    const name = newGroupName.trim()
+    if (!name) return
+    const rfc = newGroupRfc.trim().toUpperCase()
+    if (parsedCfdi && !rfc) {
+      toast.error('Indica el RFC del proveedor (coincide con el emisor del CFDI)')
+      return
+    }
+    if (parsedCfdi && rfc && rfc !== parsedCfdi.emisor_rfc.toUpperCase()) {
+      toast.error(`El RFC debe coincidir con el emisor del CFDI (${parsedCfdi.emisor_rfc})`)
+      return
+    }
+    const existing = rfc ? groups.find(g => g.rfc?.toUpperCase() === rfc) : undefined
+    if (existing) {
+      setGroupId(existing.id)
+      setNewGroupName('')
+      setNewGroupRfc('')
+      toast.message(`Grupo existente: ${existing.name}`)
+      return
+    }
     setCreatingGroup(true)
     try {
       const res = await fetch('/api/ap/supplier-groups', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newGroupName.trim() }),
+        body: JSON.stringify({ name, rfc: rfc || undefined }),
       })
       const data = await res.json()
       if (!res.ok) { toast.error(data.error ?? 'Error'); return }
-      setGroups(prev => [...prev, { ...data.group, plant_supplier: null }])
+      if (data.reused) {
+        toast.message(data.message ?? 'Grupo existente seleccionado')
+      }
+      setGroups(prev => {
+        const exists = prev.some(g => g.id === data.group.id)
+        return exists ? prev : [...prev, { ...data.group, plant_supplier: null }]
+      })
       setGroupId(data.group.id)
       setNewGroupName('')
+      setNewGroupRfc('')
     } finally {
       setCreatingGroup(false)
     }
@@ -596,6 +623,13 @@ export default function CreateSupplierInvoiceDrawer({
       // Match supplier group by emisor RFC
       if (data.supplier_group) {
         setGroupId(data.supplier_group.id)
+        setNewGroupName('')
+        setNewGroupRfc('')
+      } else if (isFullManual || isOrphanFleet || !supplierHasGroup) {
+        setNewGroupRfc(cfdi.emisor_rfc.toUpperCase())
+        if (!newGroupName.trim()) {
+          setNewGroupName(cfdi.emisor_nombre?.trim() || cfdi.emisor_rfc)
+        }
       }
 
       // Build lines from cfdi:Conceptos (one line per concept).
@@ -1249,15 +1283,22 @@ export default function CreateSupplierInvoiceDrawer({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_9rem_auto] gap-2 items-center">
                   <Input
-                    placeholder="Nuevo proveedor (nombre)…"
+                    placeholder="Nombre del grupo…"
                     value={newGroupName}
                     onChange={e => setNewGroupName(e.target.value)}
-                    className="flex-1 h-8 text-xs"
+                    className="h-8 text-xs"
                     onKeyDown={e => e.key === 'Enter' && void createGroup()}
                   />
-                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void createGroup()} disabled={!newGroupName.trim() || creatingGroup}>
+                  <Input
+                    placeholder={parsedCfdi ? 'RFC (requerido)' : 'RFC'}
+                    value={newGroupRfc}
+                    onChange={e => setNewGroupRfc(e.target.value.toUpperCase())}
+                    className="h-8 text-xs font-mono"
+                    onKeyDown={e => e.key === 'Enter' && void createGroup()}
+                  />
+                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void createGroup()} disabled={!newGroupName.trim() || creatingGroup || (parsedCfdi != null && !newGroupRfc.trim())}>
                     <Plus className="h-3.5 w-3.5" />
                     Crear
                   </Button>
@@ -1297,15 +1338,22 @@ export default function CreateSupplierInvoiceDrawer({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex gap-2 items-center">
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_9rem_auto] gap-2 items-center">
                   <Input
-                    placeholder="Nuevo grupo (nombre)…"
+                    placeholder="Nombre del grupo…"
                     value={newGroupName}
                     onChange={e => setNewGroupName(e.target.value)}
-                    className="flex-1 h-8 text-xs"
+                    className="h-8 text-xs"
                     onKeyDown={e => e.key === 'Enter' && void createGroup()}
                   />
-                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void createGroup()} disabled={!newGroupName.trim() || creatingGroup}>
+                  <Input
+                    placeholder={parsedCfdi ? 'RFC (requerido)' : 'RFC'}
+                    value={newGroupRfc}
+                    onChange={e => setNewGroupRfc(e.target.value.toUpperCase())}
+                    className="h-8 text-xs font-mono"
+                    onKeyDown={e => e.key === 'Enter' && void createGroup()}
+                  />
+                  <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void createGroup()} disabled={!newGroupName.trim() || creatingGroup || (parsedCfdi != null && !newGroupRfc.trim())}>
                     <Plus className="h-3.5 w-3.5" /> Crear
                   </Button>
                 </div>

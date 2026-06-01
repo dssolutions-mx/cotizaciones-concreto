@@ -376,7 +376,7 @@ export default function SupplierManagementPanel({
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(data.error || 'No se pudo crear el grupo'); return }
-      toast.success('Grupo creado')
+      toast.success(data.reused ? (data.message || 'Grupo existente') : 'Grupo creado')
       setNewGroupName('')
       setNewGroupRfc('')
       void loadGroups()

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { normalizeRfc } from '@/lib/ap/supplierGroupMaintenance'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
 
@@ -76,15 +77,34 @@ export async function POST(request: NextRequest) {
     const { name, rfc } = await request.json()
     if (!name?.trim()) return NextResponse.json({ error: 'Nombre requerido' }, { status: 400 })
 
+    const trimmedName = name.trim()
+    const normalizedRfc = normalizeRfc(rfc)
+
+    if (normalizedRfc) {
+      const { data: existingByRfc } = await supabase
+        .from('supplier_groups')
+        .select('id, name, rfc, is_active')
+        .eq('rfc', normalizedRfc)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (existingByRfc) {
+        return NextResponse.json(
+          { group: existingByRfc, reused: true, message: 'Ya existe un grupo con este RFC' },
+          { status: 200 },
+        )
+      }
+    }
+
     const { data: group, error } = await supabase
       .from('supplier_groups')
-      .insert({ name: name.trim(), rfc: rfc?.trim() || null })
+      .insert({ name: trimmedName, rfc: normalizedRfc })
       .select()
       .single()
 
     if (error || !group) return NextResponse.json({ error: error?.message ?? 'Error' }, { status: 500 })
 
-    return NextResponse.json({ group }, { status: 201 })
+    return NextResponse.json({ group, reused: false }, { status: 201 })
   } catch (err) {
     console.error('/api/ap/supplier-groups POST error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
