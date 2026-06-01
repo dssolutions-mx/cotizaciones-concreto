@@ -335,6 +335,7 @@ export default function ProcurementMaterialEntriesView({
   const [reviewedSuppliers, setReviewedSuppliers] = useState<Array<{ id: string; name: string }>>([])
   const [reviewedMaterialId, setReviewedMaterialId] = useState('')
   const [reviewedMaterials, setReviewedMaterials] = useState<Array<{ id: string; material_name: string }>>([])
+  const prevReviewedPlantRef = useRef(effectivePlantId)
   const [inspectionMode, setInspectionMode] = useState<'view' | 'edit'>('view')
   const [plantConceptDraft, setPlantConceptDraft] = useState('')
   const [plantWarehouseDraft, setPlantWarehouseDraft] = useState('')
@@ -370,6 +371,24 @@ export default function ProcurementMaterialEntriesView({
     [entradasView, reviewedEntries, entries]
   )
   const deepLinkScrollLoading = entradasView === 'revisadas' ? reviewedLoading : loading
+
+  const effectiveReviewedMaterialId = reviewedMaterialId || materialIdFromUrl || ''
+
+  const reviewedMaterialOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const m of reviewedMaterials) {
+      map.set(m.id, m.material_name)
+    }
+    for (const e of reviewedEntries) {
+      const id = e.material_id
+      if (!id) continue
+      const name = e.material?.material_name?.trim() || 'Sin nombre'
+      if (!map.has(id)) map.set(id, name)
+    }
+    return [...map.entries()]
+      .map(([id, material_name]) => ({ id, material_name }))
+      .sort((a, b) => a.material_name.localeCompare(b.material_name, 'es'))
+  }, [reviewedMaterials, reviewedEntries])
 
   const replaceQuery = useCallback(
     (next: {
@@ -413,6 +432,14 @@ export default function ProcurementMaterialEntriesView({
       })
     },
     [router, pathname, searchParams]
+  )
+
+  const setReviewedMaterialFilter = useCallback(
+    (id: string) => {
+      setReviewedMaterialId(id)
+      replaceQuery({ material_id: id || null })
+    },
+    [replaceQuery]
   )
 
   const handleMaterialAccountingCodeSaved = useCallback(
@@ -584,7 +611,7 @@ export default function ProcurementMaterialEntriesView({
       if (effectivePlantId) params.set('plant_id', effectivePlantId)
       if (poIdFromUrl) params.set('po_id', poIdFromUrl)
       if (reviewedSupplierId) params.set('supplier_id', reviewedSupplierId)
-      if (reviewedMaterialId) params.set('material_id', reviewedMaterialId)
+      if (effectiveReviewedMaterialId) params.set('material_id', effectiveReviewedMaterialId)
       if (reviewedDateRange.from && reviewedDateRange.to) {
         params.set('date_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
         params.set('date_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
@@ -595,7 +622,7 @@ export default function ProcurementMaterialEntriesView({
       effectivePlantId,
       poIdFromUrl,
       reviewedSupplierId,
-      reviewedMaterialId,
+      effectiveReviewedMaterialId,
       reviewedDateRange.from,
       reviewedDateRange.to,
     ]
@@ -680,9 +707,17 @@ export default function ProcurementMaterialEntriesView({
   }, [canReviewPricing, entradasView, effectivePlantId])
 
   useEffect(() => {
+    if (prevReviewedPlantRef.current === effectivePlantId) return
+    prevReviewedPlantRef.current = effectivePlantId
     setReviewedSupplierId('')
     setReviewedMaterialId('')
-  }, [effectivePlantId])
+    replaceQuery({ material_id: null })
+  }, [effectivePlantId, replaceQuery])
+
+  useEffect(() => {
+    if (entradasView !== 'revisadas' || !materialIdFromUrl) return
+    setReviewedMaterialId((prev) => (prev === materialIdFromUrl ? prev : materialIdFromUrl))
+  }, [entradasView, materialIdFromUrl])
 
   useEffect(() => {
     if (!canReviewPricing || entradasView !== 'revisadas') return
@@ -691,7 +726,7 @@ export default function ProcurementMaterialEntriesView({
       try {
         const qs = new URLSearchParams()
         if (effectivePlantId) qs.set('plant_id', effectivePlantId)
-        qs.set('active', 'true')
+        qs.set('active', 'false')
         const res = await fetch(`/api/materials?${qs}`)
         if (!res.ok || cancelled) return
         const data = await res.json()
@@ -813,7 +848,7 @@ export default function ProcurementMaterialEntriesView({
     reviewedDateRange.to,
     reviewedReloadNonce,
     reviewedSupplierId,
-    reviewedMaterialId,
+    effectiveReviewedMaterialId,
   ])
 
   const loadMoreReviewed = useCallback(async () => {
@@ -1160,7 +1195,7 @@ export default function ProcurementMaterialEntriesView({
               variant="outline"
               size="sm"
               className="border-sky-300 shrink-0"
-              onClick={() => replaceQuery({ material_id: null })}
+              onClick={() => setReviewedMaterialFilter('')}
             >
               Quitar filtro
             </Button>
@@ -1370,24 +1405,24 @@ export default function ProcurementMaterialEntriesView({
                   </div>
                   <div className="flex items-center gap-1.5 min-w-0">
                     <Select
-                      value={reviewedMaterialId || '__all__'}
-                      onValueChange={(v) => setReviewedMaterialId(v === '__all__' ? '' : v)}
+                      value={effectiveReviewedMaterialId || '__all__'}
+                      onValueChange={(v) => setReviewedMaterialFilter(v === '__all__' ? '' : v)}
                     >
                       <SelectTrigger className="h-8 text-xs w-[200px] border-stone-300 bg-white">
                         <SelectValue placeholder="Todos los materiales" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__all__">Todos los materiales</SelectItem>
-                        {reviewedMaterials.map((m) => (
+                        {reviewedMaterialOptions.map((m) => (
                           <SelectItem key={m.id} value={m.id}>{m.material_name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                    {reviewedMaterialId && (
+                    {effectiveReviewedMaterialId && (
                       <button
                         type="button"
                         className="h-5 w-5 flex items-center justify-center rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100"
-                        onClick={() => setReviewedMaterialId('')}
+                        onClick={() => setReviewedMaterialFilter('')}
                         title="Quitar filtro de material"
                       >
                         <X className="h-3 w-3" />
