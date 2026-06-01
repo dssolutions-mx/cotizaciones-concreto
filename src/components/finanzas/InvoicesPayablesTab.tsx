@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/select'
 import { format, isBefore, differenceInDays } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { AlertTriangle, ChevronDown, ChevronRight, FileText, ExternalLink, Package, Truck, Download, Receipt, Pencil, FileUp } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, FileText, ExternalLink, Package, Truck, Download, Receipt, Pencil, FileUp, X } from 'lucide-react'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
@@ -47,13 +47,27 @@ type CreditNoteAllocation = {
   } | null
 }
 
+type InvoiceEntryMaterial = {
+  material_id?: string
+  material?: { id: string; material_name?: string } | null
+}
+
 type InvoiceItem = {
   id: string
   entry_id: string | null
   cost_category: 'material' | 'fleet'
   description: string | null
   amount: number
-  entry?: any
+  entry?: InvoiceEntryMaterial & Record<string, unknown>
+}
+
+function invoiceMatchesMaterial(inv: InvoiceWithEnrichment, materialId: string): boolean {
+  for (const item of inv.items ?? []) {
+    if (item.cost_category !== 'material' || !item.entry) continue
+    const mid = item.entry.material?.id ?? item.entry.material_id
+    if (mid === materialId) return true
+  }
+  return false
 }
 
 type InvoiceWithEnrichment = SupplierInvoice & {
@@ -89,6 +103,8 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
   const [localPlantFilter, setLocalPlantFilter] = useState('')
   const plantFilter = hidePlantFilter ? workspacePlantId : (localPlantFilter || workspacePlantId)
   const [includePaid, setIncludePaid] = useState(false)
+  const [supplierFilter, setSupplierFilter] = useState('')
+  const [materialFilter, setMaterialFilter] = useState('')
   const [invoices, setInvoices] = useState<InvoiceWithEnrichment[]>([])
   const [loading, setLoading] = useState(true)
   const [reloadKey, setReloadKey] = useState(0)
@@ -149,22 +165,64 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
     } catch { /* non-fatal */ }
   }, [])
 
+  const supplierOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const inv of invoices) {
+      if (!map.has(inv.supplier_group_id)) {
+        map.set(inv.supplier_group_id, inv.supplier_group?.name ?? inv.supplier_group_id)
+      }
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+  }, [invoices])
+
+  const materialOptions = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const inv of invoices) {
+      for (const item of inv.items ?? []) {
+        if (item.cost_category !== 'material' || !item.entry) continue
+        const id = item.entry.material?.id ?? item.entry.material_id
+        if (!id || map.has(id)) continue
+        map.set(id, item.entry.material?.material_name ?? id)
+      }
+    }
+    return [...map.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+  }, [invoices])
+
+  const hasActiveFilter = !!supplierFilter || !!materialFilter
+
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter(inv => {
+      if (supplierFilter && inv.supplier_group_id !== supplierFilter) return false
+      if (materialFilter && !invoiceMatchesMaterial(inv, materialFilter)) return false
+      return true
+    })
+  }, [invoices, supplierFilter, materialFilter])
+
+  useEffect(() => {
+    if (loading) return
+    setExpandedGroups(new Set(filteredInvoices.map(inv => inv.supplier_group_id)))
+  }, [supplierFilter, materialFilter, loading, filteredInvoices])
+
   // Group by supplier_group
   const grouped = useMemo(() => {
     const map = new Map<string, { groupName: string; invoices: InvoiceWithEnrichment[] }>()
-    for (const inv of invoices) {
+    for (const inv of filteredInvoices) {
       const gid = inv.supplier_group_id
       const gname = inv.supplier_group?.name ?? gid
       if (!map.has(gid)) map.set(gid, { groupName: gname, invoices: [] })
       map.get(gid)!.invoices.push(inv)
     }
     return map
-  }, [invoices])
+  }, [filteredInvoices])
 
   const exportExcel = async () => {
-    if (invoices.length === 0) return
+    if (filteredInvoices.length === 0) return
     const XLSX = await import('xlsx')
-    const rows = invoices.map(inv => ({
+    const rows = filteredInvoices.map(inv => ({
       Proveedor: inv.supplier_group?.name ?? '',
       Factura: inv.invoice_number,
       Tipo: inv.source === 'mixed' ? 'Mixta' : inv.source === 'historical' ? 'Histórico' : inv.is_internal ? 'Interno' : 'Normal',
@@ -225,6 +283,48 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
           {includePaid ? 'Mostrando todas' : 'Mostrar pagadas'}
         </Button>
 
+        {supplierOptions.length > 0 && (
+          <Select value={supplierFilter || '__all__'} onValueChange={v => setSupplierFilter(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-[220px] bg-white border-stone-300">
+              <SelectValue placeholder="Todos los proveedores" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todos los proveedores</SelectItem>
+              {supplierOptions.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {materialOptions.length > 0 && (
+          <Select value={materialFilter || '__all__'} onValueChange={v => setMaterialFilter(v === '__all__' ? '' : v)}>
+            <SelectTrigger className="w-[220px] bg-white border-stone-300">
+              <SelectValue placeholder="Todos los materiales" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">Todos los materiales</SelectItem>
+              {materialOptions.map(m => (
+                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        {hasActiveFilter && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs gap-1 text-stone-500"
+            onClick={() => {
+              setSupplierFilter('')
+              setMaterialFilter('')
+            }}
+          >
+            <X className="h-3.5 w-3.5" /> Limpiar filtros
+          </Button>
+        )}
+
         <div className="ml-auto flex gap-2">
           <Button
             size="sm"
@@ -242,7 +342,7 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
           >
             <Receipt className="h-3.5 w-3.5" /> NC masivas (ZIP/XML)
           </Button>
-          <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void exportExcel()} disabled={invoices.length === 0}>
+          <Button size="sm" variant="outline" className="h-8 text-xs gap-1" onClick={() => void exportExcel()} disabled={filteredInvoices.length === 0}>
             <Download className="h-3.5 w-3.5" /> Excel
           </Button>
           <Button
@@ -268,6 +368,12 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
           <FileText className="h-10 w-10 mx-auto mb-3 text-stone-300" />
           <p className="text-sm font-medium">No hay facturas registradas</p>
           <p className="text-xs text-stone-400 mt-1">Crea facturas desde la pestaña «Recepciones sin factura» o registra facturas históricas aquí.</p>
+        </div>
+      ) : filteredInvoices.length === 0 ? (
+        <div className="py-16 text-center text-stone-500">
+          <FileText className="h-10 w-10 mx-auto mb-3 text-stone-300" />
+          <p className="text-sm font-medium">Ninguna factura coincide con los filtros</p>
+          <p className="text-xs text-stone-400 mt-1">Prueba otro proveedor o material, o usa Limpiar filtros.</p>
         </div>
       ) : (
         <div className="space-y-3">

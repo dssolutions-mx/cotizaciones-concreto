@@ -3,10 +3,13 @@
 import React, { useState } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { DollarSign, FileText, ShieldCheck } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { DollarSign, FileText, Receipt, ShieldCheck, Download, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import Link from 'next/link'
 import OrphanEntriesTab from '@/components/finanzas/OrphanEntriesTab'
 import InvoicesPayablesTab from '@/components/finanzas/InvoicesPayablesTab'
+import CreditNotesPayablesTab from '@/components/finanzas/CreditNotesPayablesTab'
 import { usePlantContext } from '@/contexts/PlantContext'
 import {
   Select,
@@ -32,6 +35,37 @@ export default function CxpWorkspace({ workspacePlantId = '', embedded = false }
 
   const activeTab = searchParams.get('cxp_tab') || 'sin_factura'
   const plantScope = embedded ? workspacePlantId : localPlant
+  const [exportingReview, setExportingReview] = useState(false)
+
+  const exportIntegralReview = async () => {
+    setExportingReview(true)
+    try {
+      const qs = new URLSearchParams()
+      if (plantScope) qs.set('plant_id', plantScope)
+      const res = await fetch(`/api/ap/cxp-review-export?${qs}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error || `Error ${res.status}`)
+      }
+      const blob = await res.blob()
+      const disposition = res.headers.get('Content-Disposition')
+      const match = disposition?.match(/filename="([^"]+)"/)
+      const filename =
+        match?.[1] ??
+        `CuentasPorPagar_Revision_Integral_${new Date().toISOString().slice(0, 10)}.xlsx`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('Informe integral exportado')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo exportar el informe')
+    } finally {
+      setExportingReview(false)
+    }
+  }
 
   const setTab = (tab: string) => {
     const params = new URLSearchParams(searchParams.toString())
@@ -78,6 +112,10 @@ export default function CxpWorkspace({ workspacePlantId = '', embedded = false }
               <DollarSign className="h-3.5 w-3.5" />
               Facturas / CxP
             </TabsTrigger>
+            <TabsTrigger value="notas_credito" className="text-xs gap-1.5">
+              <Receipt className="h-3.5 w-3.5" />
+              Notas de crédito
+            </TabsTrigger>
           </TabsList>
           <Link
             href="/finanzas/cxp/sat?tab=complementos"
@@ -86,11 +124,28 @@ export default function CxpWorkspace({ workspacePlantId = '', embedded = false }
             <ShieldCheck className="h-3.5 w-3.5" />
             Conciliación SAT
           </Link>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 text-xs gap-1.5 border-stone-300"
+            disabled={exportingReview}
+            onClick={() => void exportIntegralReview()}
+          >
+            {exportingReview ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            Exportar informe integral
+          </Button>
         </div>
 
         <div className="mt-4">
           {activeTab === 'sin_factura' ? (
             <OrphanEntriesTab workspacePlantId={plantScope} hidePlantFilter={embedded} />
+          ) : activeTab === 'notas_credito' ? (
+            <CreditNotesPayablesTab workspacePlantId={plantScope} hidePlantFilter={embedded} />
           ) : (
             <InvoicesPayablesTab workspacePlantId={plantScope} hidePlantFilter={embedded} />
           )}

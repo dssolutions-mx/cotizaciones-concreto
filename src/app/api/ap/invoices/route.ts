@@ -45,7 +45,8 @@ export async function GET(request: NextRequest) {
           id, entry_id, line_source, manual_reason, cost_category, description, qty, unit_price, amount,
           entry:material_entries!entry_id(
             id, entry_number, entry_date, received_qty_entered, received_uom,
-            unit_price, landed_unit_price, supplier_invoice
+            unit_price, landed_unit_price, supplier_invoice, material_id,
+            material:materials(id, material_name)
           )
         ),
         payable:payables!invoice_id(
