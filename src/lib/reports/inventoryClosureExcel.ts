@@ -339,6 +339,50 @@ async function buildResumenSheet(
 // ─────────────────────────────────────────────────────────────────────────────
 // Sheet 2: Conciliación (the core sheet)
 // ─────────────────────────────────────────────────────────────────────────────
+const COUNT_UNIT_LABELS: Record<string, string> = {
+  kg: 'kg',
+  m3: 'm³',
+  ton: 'ton',
+  unit: 'unidad',
+}
+
+const VOL_SOURCE_LABELS: Record<string, string> = {
+  quality_study: 'Estudio de calidad',
+  closure_override: 'Capturado manualmente en cierre',
+  po_item: 'Partida de orden de compra',
+  supplier_agreement: 'Convenio con proveedor',
+  material_default: 'Densidad por defecto del material',
+  entry: 'Entrada de material',
+}
+
+const DIRECT_COUNT_PROCEDURE: Record<string, string> = {
+  kg: 'Conteo directo en kilogramos',
+  ton: 'Conteo directo en toneladas',
+  unit: 'Conteo en unidades',
+}
+
+function conciliacionCountUnitLabel(unit: string | null | undefined): string {
+  if (!unit) return '—'
+  return COUNT_UNIT_LABELS[unit] ?? unit
+}
+
+function conciliacionVolColumns(
+  unit: string | null | undefined,
+  volW: number | null | undefined,
+  volSource: string | null | undefined,
+): { volWDisplay: string | number; volSourceDisplay: string } {
+  if (unit === 'm3') {
+    return {
+      volWDisplay: volW != null ? volW : '—',
+      volSourceDisplay: volSource ? (VOL_SOURCE_LABELS[volSource] ?? volSource) : '—',
+    }
+  }
+  if (unit && DIRECT_COUNT_PROCEDURE[unit]) {
+    return { volWDisplay: 'No aplica', volSourceDisplay: DIRECT_COUNT_PROCEDURE[unit] }
+  }
+  return { volWDisplay: '—', volSourceDisplay: '—' }
+}
+
 function buildConciliacionSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail) {
   const ws = wb.addWorksheet('Conciliación')
   ws.views = [{ state: 'frozen', ySplit: 2 }]
@@ -384,6 +428,12 @@ function buildConciliacionSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDe
     const row = ws.getRow(rowIdx++)
     row.height = 14
 
+    const { volWDisplay, volSourceDisplay } = conciliacionVolColumns(
+      m.physical_count_unit,
+      m.volumetric_weight_kg_per_m3,
+      m.volumetric_weight_source,
+    )
+
     const vals = [
       m.material?.material_name ?? m.material_id,
       m.material?.category ?? '—',
@@ -394,9 +444,9 @@ function buildConciliacionSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDe
       m.period_waste_kg ?? 0,
       m.theoretical_final_kg ?? 0,
       m.physical_count_value ?? '—',
-      m.physical_count_unit ?? '—',
-      m.volumetric_weight_kg_per_m3 ?? '—',
-      m.volumetric_weight_source ?? '—',
+      conciliacionCountUnitLabel(m.physical_count_unit),
+      volWDisplay,
+      volSourceDisplay,
       m.physical_count_kg ?? '—',
       m.variance_kg ?? 0,
       m.variance_pct ?? '—',
