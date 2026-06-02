@@ -579,6 +579,11 @@ export default function DosificadorDashboard() {
               { href: '/production-control/transfer-between-plants', label: 'Transferir entre plantas', Icon: Truck },
               { href: '/production-control/reorder-config', label: 'Puntos de reorden', Icon: TrendingDown },
               { href: '/production-control/inventario', label: 'Inventario y conciliación', Icon: BarChart3 },
+              {
+                href: '/production-control/arkik-entries-comparison',
+                label: 'Conciliar entradas Arkik',
+                Icon: Upload,
+              },
               { href: '/production-control/daily-log', label: 'Bitácora diaria', Icon: Calendar },
               { href: '/production-control/cross-plant', label: 'Producción cruzada', Icon: ArrowLeftRight },
               { href: '/production-control/reloj-checador', label: 'Reloj checador', Icon: ClockIcon },

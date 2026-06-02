@@ -61,6 +61,14 @@ const inventoryRoutes: Record<string, BreadcrumbRouteItem[]> = {
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Procesador Arkik', href: '/production-control/arkik-upload', icon: FileUp }
   ],
+  '/production-control/arkik-entries-comparison': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    {
+      label: 'Conciliar entradas Arkik',
+      href: '/production-control/arkik-entries-comparison',
+      icon: FileUp,
+    },
+  ],
   '/production-control/evidencia-concreto': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Evidencia de remisiones (concreto)', href: '/production-control/evidencia-concreto', icon: FileText }
