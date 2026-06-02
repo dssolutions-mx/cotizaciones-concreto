@@ -6,6 +6,20 @@ import {
   type PortalContext,
 } from '@/lib/client-portal/resolvePortalContext';
 import { getBusinessDateString, isDeliveryDateBeforeBusinessToday } from '@/lib/client-portal/businessDate';
+import {
+  buildPortalOrderFailure,
+  buildPortalOrderValidationFailure,
+  createPortalOrderReference,
+  inferPortalOrderErrorCode,
+  logPortalOrderInfo,
+  normalizeUnknownError,
+  snapshotPortalOrderBody,
+  userMessageForPortalOrderCode,
+  type PortalOrderCreateFailure,
+  type PortalOrderLogContext,
+} from '@/lib/client-portal/portalOrderDiagnostics';
+
+export type { PortalOrderCreateFailure } from '@/lib/client-portal/portalOrderDiagnostics';
 
 type BillingType = 'PER_M3' | 'PER_ORDER_FIXED' | 'PER_UNIT';
 
@@ -31,8 +45,7 @@ export type PortalOrderCreateBody = {
   delivery_longitude?: number | string;
 };
 
-export type PortalOrderCreateSuccess = { id: string };
-export type PortalOrderCreateFailure = { status: number; error: string };
+export type PortalOrderCreateSuccess = { id: string; reference: string };
 
 export function parseValidConstructionSiteId(raw: unknown): string | null {
   if (typeof raw !== 'string' || !raw.trim()) return null;
@@ -145,7 +158,14 @@ async function assertPortalOrderSiteAllowed(
   });
 
   if (error) {
-    console.warn('[portalOrderCreation] external_portal_order_site_allowed RPC failed:', error.message);
+    console.warn(
+      JSON.stringify({
+        scope: 'portal_order_create',
+        event: 'site_rpc_fallback',
+        message: error.message,
+        clientId,
+      })
+    );
     return { ok: true };
   }
 
@@ -379,6 +399,22 @@ async function fetchQuoteAdditionalProductsForPortal(
 /**
  * Creates a portal order with atomic rollback on line-item failures.
  */
+function portalLogCtx(
+  reference: string,
+  step: string,
+  clientId: string,
+  userId: string,
+  extra?: Partial<PortalOrderLogContext>
+): PortalOrderLogContext {
+  return {
+    reference,
+    step,
+    clientId,
+    userId,
+    ...extra,
+  };
+}
+
 export async function createPortalOrder(
   supabase: SupabaseClient,
   userId: string,
@@ -386,7 +422,16 @@ export async function createPortalOrder(
   association: PortalContext,
   body: PortalOrderCreateBody
 ): Promise<PortalOrderCreateSuccess | PortalOrderCreateFailure> {
+  const reference = createPortalOrderReference();
   const clientId = association.clientId;
+  const baseCtx = portalLogCtx(reference, 'start', clientId, userId);
+
+  logPortalOrderInfo('create_started', baseCtx, {
+    membershipId: association.membershipId || null,
+    sitesRestricted: association.sitesRestricted,
+    plantsRestricted: association.plantsRestricted,
+    body: snapshotPortalOrderBody(body),
+  });
 
   const {
     construction_site,
@@ -406,29 +451,65 @@ export async function createPortalOrder(
   } = body;
 
   if (!delivery_date || typeof delivery_date !== 'string') {
-    return { status: 400, error: 'delivery_date is required (YYYY-MM-DD)' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_DELIVERY_DATE',
+      'La fecha de entrega es obligatoria.',
+      portalLogCtx(reference, 'validate_delivery_date', clientId, userId)
+    );
   }
   if (!elemento || typeof elemento !== 'string' || elemento.trim().length === 0) {
-    return { status: 400, error: 'elemento es requerido' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_ELEMENTO',
+      'El elemento a colar es obligatorio.',
+      portalLogCtx(reference, 'validate_elemento', clientId, userId)
+    );
   }
   if (!construction_site?.trim() && !construction_site_id) {
-    return { status: 400, error: 'construction_site o construction_site_id es requerido' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_SITE',
+      'Debes indicar la obra del pedido.',
+      portalLogCtx(reference, 'validate_site', clientId, userId)
+    );
   }
   if (!quote_detail_id || typeof quote_detail_id !== 'string') {
-    return { status: 400, error: 'quote_detail_id es requerido' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_QUOTE_DETAIL',
+      'Debes seleccionar un producto válido.',
+      portalLogCtx(reference, 'validate_quote_detail', clientId, userId)
+    );
   }
   const volumeNum = Number(volume);
   if (!Number.isFinite(volumeNum) || volumeNum <= 0) {
-    return { status: 400, error: 'volume debe ser mayor a 0' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_VOLUME',
+      'El volumen debe ser mayor a cero.',
+      portalLogCtx(reference, 'validate_volume', clientId, userId, { quoteDetailId: quote_detail_id })
+    );
   }
 
   const plantIdStr = typeof plant_id === 'string' && plant_id.trim() ? plant_id.trim() : null;
   if (!plantIdStr) {
-    return { status: 400, error: 'plant_id es requerido' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_PLANT',
+      'Debes seleccionar una planta.',
+      portalLogCtx(reference, 'validate_plant', clientId, userId)
+    );
   }
 
   if (isDeliveryDateBeforeBusinessToday(delivery_date)) {
-    return { status: 400, error: 'La fecha no puede ser en el pasado' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_DELIVERY_DATE',
+      'La fecha de entrega no puede ser en el pasado.',
+      portalLogCtx(reference, 'validate_delivery_date', clientId, userId),
+      { delivery_date }
+    );
   }
 
   const validSiteId = parseValidConstructionSiteId(construction_site_id);
@@ -443,17 +524,36 @@ export async function createPortalOrder(
     siteName = siteRow?.name?.trim() ?? '';
   }
   if (!siteName && !validSiteId) {
-    return { status: 400, error: 'construction_site es requerido' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_SITE',
+      'Debes indicar la obra del pedido.',
+      portalLogCtx(reference, 'validate_site_name', clientId, userId)
+    );
   }
 
   const siteGate = assertConstructionSiteAllowedForCreate(association, validSiteId);
   if (!siteGate.ok) {
-    return { status: 403, error: siteGate.message };
+    return buildPortalOrderFailure(
+      reference,
+      'FORBIDDEN_SITE',
+      403,
+      siteGate.message,
+      portalLogCtx(reference, 'forbidden_site', clientId, userId, {
+        constructionSiteId: validSiteId,
+      })
+    );
   }
 
   const plantGate = assertPlantAllowedForPortal(association, plantIdStr);
   if (!plantGate.ok) {
-    return { status: 403, error: plantGate.message };
+    return buildPortalOrderFailure(
+      reference,
+      'FORBIDDEN_PLANT',
+      403,
+      plantGate.message,
+      portalLogCtx(reference, 'forbidden_plant', clientId, userId, { plantId: plantIdStr })
+    );
   }
 
   const portalSiteGate = await assertPortalOrderSiteAllowed(
@@ -463,7 +563,15 @@ export async function createPortalOrder(
     validSiteId
   );
   if (!portalSiteGate.ok) {
-    return { status: 403, error: portalSiteGate.message };
+    return buildPortalOrderFailure(
+      reference,
+      'FORBIDDEN_PORTAL_SITE',
+      403,
+      portalSiteGate.message,
+      portalLogCtx(reference, 'forbidden_portal_site', clientId, userId, {
+        constructionSiteId: validSiteId,
+      })
+    );
   }
 
   const validatedQuote = await loadValidatedQuoteDetail(
@@ -473,15 +581,28 @@ export async function createPortalOrder(
     plantIdStr
   );
   if (!validatedQuote) {
-    return {
-      status: 400,
-      error:
-        'El producto o cotización seleccionado no es válido, no está aprobado o no corresponde a la planta indicada.',
-    };
+    return buildPortalOrderFailure(
+      reference,
+      'QUOTE_NOT_VALID',
+      400,
+      'El producto o cotización seleccionado no es válido, no está aprobado o no corresponde a la planta indicada.',
+      portalLogCtx(reference, 'validate_quote', clientId, userId, {
+        quoteDetailId: quote_detail_id,
+        plantId: plantIdStr,
+      })
+    );
   }
 
   if (quote_id && quote_id !== validatedQuote.quoteId) {
-    return { status: 400, error: 'quote_id no coincide con el producto seleccionado' };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_QUOTE_MISMATCH',
+      'La cotización no coincide con el producto seleccionado.',
+      portalLogCtx(reference, 'validate_quote_mismatch', clientId, userId, {
+        quoteDetailId: quote_detail_id,
+      }),
+      { quote_id, resolved_quote_id: validatedQuote.quoteId }
+    );
   }
 
   const resolvedQuoteId = validatedQuote.quoteId;
@@ -495,10 +616,12 @@ export async function createPortalOrder(
   let deliveryLatNum: number | null = null;
   let deliveryLngNum: number | null = null;
   if (hasLat !== hasLng) {
-    return {
-      status: 400,
-      error: 'Si indica ubicación de entrega, debe enviar latitud y longitud.',
-    };
+    return buildPortalOrderValidationFailure(
+      reference,
+      'VALIDATION_COORDINATES',
+      'Si indicas ubicación de entrega, debes enviar latitud y longitud.',
+      portalLogCtx(reference, 'validate_coordinates', clientId, userId)
+    );
   }
   if (hasLat && hasLng) {
     const lat =
@@ -510,10 +633,20 @@ export async function createPortalOrder(
         ? deliveryLongitudeRaw
         : parseFloat(String(deliveryLongitudeRaw).trim());
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return { status: 400, error: 'Coordenadas de entrega inválidas.' };
+      return buildPortalOrderValidationFailure(
+        reference,
+        'VALIDATION_COORDINATES',
+        'Las coordenadas de entrega no son válidas.',
+        portalLogCtx(reference, 'validate_coordinates', clientId, userId)
+      );
     }
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-      return { status: 400, error: 'Coordenadas de entrega fuera de rango.' };
+      return buildPortalOrderValidationFailure(
+        reference,
+        'VALIDATION_COORDINATES',
+        'Las coordenadas de entrega están fuera de rango.',
+        portalLogCtx(reference, 'validate_coordinates', clientId, userId)
+      );
     }
     deliveryLatNum = lat;
     deliveryLngNum = lng;
@@ -537,7 +670,19 @@ export async function createPortalOrder(
   let orderId: string | null = null;
 
   try {
-    const orderNumber = await generateUniquePortalOrderNumber(supabase);
+    let orderNumber: string;
+    try {
+      orderNumber = await generateUniquePortalOrderNumber(supabase);
+    } catch (orderNumberErr) {
+      return buildPortalOrderFailure(
+        reference,
+        'ORDER_NUMBER_GENERATION',
+        500,
+        userMessageForPortalOrderCode('ORDER_NUMBER_GENERATION'),
+        portalLogCtx(reference, 'generate_order_number', clientId, userId),
+        orderNumberErr
+      );
+    }
 
     const insertPayload: Record<string, unknown> = {
       client_id: clientId,
@@ -577,19 +722,33 @@ export async function createPortalOrder(
       .single();
 
     if (insertError || !created?.id) {
-      console.error('Error creating client-portal order:', insertError);
       const isDuplicate =
         insertError?.code === '23505' &&
         String(insertError?.message || '').includes('order_number');
-      return {
-        status: isDuplicate ? 409 : 500,
-        error: isDuplicate
-          ? 'Conflicto al generar número de pedido. Intenta de nuevo.'
-          : 'No se pudo crear el pedido. Intenta de nuevo o contacta soporte.',
-      };
+      const code = isDuplicate ? 'ORDER_NUMBER_CONFLICT' : 'ORDER_INSERT_FAILED';
+      return buildPortalOrderFailure(
+        reference,
+        code,
+        isDuplicate ? 409 : 500,
+        userMessageForPortalOrderCode(code, insertError),
+        portalLogCtx(reference, 'insert_order', clientId, userId, {
+          orderNumber,
+          plantId: plantIdStr,
+          quoteDetailId: quote_detail_id,
+        }),
+        insertError,
+        { order_number: orderNumber }
+      );
     }
 
     orderId = created.id;
+    logPortalOrderInfo(
+      'order_inserted',
+      portalLogCtx(reference, 'insert_order', clientId, userId, {
+        orderId,
+        orderNumber,
+      })
+    );
 
     const itemTotalPrice = volumeNum * unitPrice;
     const { error: itemError } = await supabase.from('order_items').insert({
@@ -608,7 +767,8 @@ export async function createPortalOrder(
     });
 
     if (itemError) {
-      throw itemError;
+      const wrapped = Object.assign(itemError, { portalStep: 'insert_order_item' });
+      throw wrapped;
     }
 
     const explicitSelection = Array.isArray(selected_additional_product_ids)
@@ -631,7 +791,10 @@ export async function createPortalOrder(
         .from('order_items')
         .insert(additionalItems);
       if (additionalInsertError) {
-        throw additionalInsertError;
+        const wrapped = Object.assign(additionalInsertError, {
+          portalStep: 'insert_additional_items',
+        });
+        throw wrapped;
       }
     }
 
@@ -648,27 +811,63 @@ export async function createPortalOrder(
       .eq('id', orderId);
 
     if (amountUpdateError) {
-      throw amountUpdateError;
+      const wrapped = Object.assign(amountUpdateError, { portalStep: 'update_amounts' });
+      throw wrapped;
     }
 
-    return { id: orderId };
+    logPortalOrderInfo(
+      'create_succeeded',
+      portalLogCtx(reference, 'complete', clientId, userId, {
+        orderId,
+        orderNumber,
+      }),
+      {
+        preliminary_subtotal: preliminarySubtotal,
+        additional_line_count: additionalItems.length,
+      }
+    );
+
+    return { id: orderId, reference };
   } catch (err) {
-    console.error('[createPortalOrder] failed:', err);
+    const step =
+      err &&
+      typeof err === 'object' &&
+      'portalStep' in err &&
+      typeof (err as { portalStep: unknown }).portalStep === 'string'
+        ? (err as { portalStep: string }).portalStep
+        : err instanceof Error && err.message.includes('productos adicionales')
+          ? 'insert_additional_items'
+          : 'unexpected';
+
     if (orderId) {
       try {
         await rollbackPortalOrder(supabase, orderId);
+        logPortalOrderInfo(
+          'rollback_succeeded',
+          portalLogCtx(reference, 'rollback', clientId, userId, { orderId })
+        );
       } catch (rollbackErr) {
-        console.error('[createPortalOrder] rollback failed:', rollbackErr);
+        return buildPortalOrderFailure(
+          reference,
+          'ROLLBACK_FAILED',
+          500,
+          userMessageForPortalOrderCode('ROLLBACK_FAILED'),
+          portalLogCtx(reference, 'rollback', clientId, userId, { orderId }),
+          rollbackErr,
+          { original_error: normalizeUnknownError(err), original_step: step }
+        );
       }
     }
-    const message =
-      err instanceof Error ? err.message : 'No se pudo completar el pedido.';
-    return {
-      status: 500,
-      error:
-        message.includes('productos adicionales') || message.includes('organización')
-          ? message
-          : 'No se pudo completar el pedido. No se guardó un pedido incompleto.',
-    };
+
+    const code = inferPortalOrderErrorCode(err, step);
+    return buildPortalOrderFailure(
+      reference,
+      code,
+      500,
+      userMessageForPortalOrderCode(code, err),
+      portalLogCtx(reference, step, clientId, userId, { orderId }),
+      err,
+      { rolled_back: Boolean(orderId) }
+    );
   }
 }

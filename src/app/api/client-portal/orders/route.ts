@@ -5,7 +5,26 @@ import {
   resolvePortalContext,
 } from '@/lib/client-portal/resolvePortalContext';
 import { createPortalOrder } from '@/lib/client-portal/portalOrderCreation';
+import {
+  createPortalOrderReference,
+  logPortalOrderError,
+  normalizeUnknownError,
+  portalOrderSupportLine,
+  PORTAL_ORDER_LOG_SCOPE,
+} from '@/lib/client-portal/portalOrderDiagnostics';
 import { NextResponse } from 'next/server';
+
+function portalOrderErrorResponse(
+  status: number,
+  userMessage: string,
+  reference: string,
+  code: string
+) {
+  return NextResponse.json(
+    { error: userMessage, reference, code, support_hint: portalOrderSupportLine(reference) },
+    { status, headers: { 'X-Portal-Order-Reference': reference } }
+  );
+}
 
 export async function GET(request: Request) {
   try {
@@ -43,46 +62,36 @@ export async function GET(request: Request) {
       .eq('client_id', resolved.ctx.clientId)
       .order('delivery_date', { ascending: false });
 
-    // Apply status filter if provided
-    // Handle combined status filtering for client portal view
     if (statusFilter && statusFilter !== 'all') {
       switch (statusFilter) {
         case 'pending_approval':
-          // Orders waiting for client executive approval
           ordersQuery = ordersQuery.eq('client_approval_status', 'pending_client');
           break;
         case 'pending_credit':
-          // Orders approved by client but waiting for credit validation
           ordersQuery = ordersQuery
             .in('client_approval_status', ['approved_by_client', 'not_required'])
             .eq('credit_status', 'pending');
           break;
         case 'approved':
-          // Fully approved orders
           ordersQuery = ordersQuery.eq('credit_status', 'approved');
           break;
         case 'in_progress':
-          // Orders being delivered
           ordersQuery = ordersQuery.eq('order_status', 'in_progress');
           break;
         case 'completed':
-          // Completed orders
           ordersQuery = ordersQuery.eq('order_status', 'completed');
           break;
         default:
-          // For any other status, filter by order_status
           ordersQuery = ordersQuery.eq('order_status', statusFilter);
       }
     }
 
-    // Apply search filter if provided
     if (searchQuery) {
       ordersQuery = ordersQuery.or(
         `order_number.ilike.%${searchQuery}%,construction_site.ilike.%${searchQuery}%`
       );
     }
 
-    // Apply date range filter if provided
     if (fromDate) {
       ordersQuery = ordersQuery.gte('delivery_date', fromDate);
     }
@@ -93,37 +102,83 @@ export async function GET(request: Request) {
     const { data: orders, error: ordersError } = await ordersQuery;
 
     if (ordersError) {
-      console.error('Error fetching orders:', ordersError);
+      console.error(
+        JSON.stringify({
+          scope: PORTAL_ORDER_LOG_SCOPE,
+          event: 'list_failed',
+          error: normalizeUnknownError(ordersError),
+        })
+      );
       return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 });
     }
 
     return NextResponse.json({
       orders: orders || [],
-      totalCount: orders?.length || 0
+      totalCount: orders?.length || 0,
     });
-
   } catch (error) {
-    console.error('Orders API error:', error);
+    console.error(
+      JSON.stringify({
+        scope: PORTAL_ORDER_LOG_SCOPE,
+        event: 'list_unexpected',
+        error: normalizeUnknownError(error),
+      })
+    );
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const reference = createPortalOrderReference();
+
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
+      logPortalOrderError(
+        'auth_failed',
+        { reference, step: 'auth', userId: user?.id },
+        authError ?? new Error('no user')
+      );
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch (parseErr) {
+      logPortalOrderError(
+        'body_parse_failed',
+        { reference, step: 'parse_body', userId: user.id },
+        parseErr
+      );
+      return portalOrderErrorResponse(
+        400,
+        'La solicitud no tiene un formato válido.',
+        reference,
+        'UNEXPECTED'
+      );
+    }
+
     const clientIdParam =
-      getOptionalPortalClientIdFromRequest(request) || getOptionalPortalClientIdFromBody(body);
+      getOptionalPortalClientIdFromRequest(request) ||
+      getOptionalPortalClientIdFromBody(body);
+
     const resolved = await resolvePortalContext(supabase, user.id, clientIdParam);
     if (!resolved.ok) {
-      return NextResponse.json({ error: resolved.message }, { status: resolved.status });
+      logPortalOrderWarnRoute(reference, 'resolve_context_failed', user.id, {
+        status: resolved.status,
+        message: resolved.message,
+      });
+      return portalOrderErrorResponse(
+        resolved.status,
+        resolved.message,
+        reference,
+        'UNEXPECTED'
+      );
     }
+
     const association = resolved.ctx;
 
     const isExecutive = association.roleWithinClient === 'executive';
@@ -131,9 +186,11 @@ export async function POST(request: Request) {
       isExecutive || association.permissions?.create_orders === true;
 
     if (!hasCreatePermission) {
-      return NextResponse.json(
-        { error: 'No tienes permiso para crear pedidos. Contacta al administrador de tu organización.' },
-        { status: 403 }
+      return portalOrderErrorResponse(
+        403,
+        'No tienes permiso para crear pedidos. Contacta al administrador de tu organización.',
+        reference,
+        'UNEXPECTED'
       );
     }
 
@@ -144,10 +201,21 @@ export async function POST(request: Request) {
       .single();
 
     if (clientError || !client) {
-      console.error('Client not found in clients table:', association.clientId, clientError);
-      return NextResponse.json(
-        { error: 'El cliente asociado no existe. Contacta al administrador.' },
-        { status: 404 }
+      logPortalOrderError(
+        'client_not_found',
+        {
+          reference,
+          step: 'load_client',
+          userId: user.id,
+          clientId: association.clientId,
+        },
+        clientError ?? new Error('client missing')
+      );
+      return portalOrderErrorResponse(
+        404,
+        'El cliente asociado no existe. Contacta al administrador.',
+        reference,
+        'UNEXPECTED'
       );
     }
 
@@ -156,16 +224,60 @@ export async function POST(request: Request) {
       user.id,
       user.email,
       association,
-      body
+      body as Parameters<typeof createPortalOrder>[4]
     );
 
     if ('error' in result) {
-      return NextResponse.json({ error: result.error }, { status: result.status });
+      return NextResponse.json(
+        {
+          error: result.error,
+          reference: result.reference,
+          code: result.code,
+          support_hint: portalOrderSupportLine(result.reference),
+        },
+        {
+          status: result.status,
+          headers: { 'X-Portal-Order-Reference': result.reference },
+        }
+      );
     }
 
-    return NextResponse.json({ id: result.id }, { status: 201 });
+    return NextResponse.json(
+      { id: result.id, reference: result.reference },
+      {
+        status: 201,
+        headers: { 'X-Portal-Order-Reference': result.reference },
+      }
+    );
   } catch (error) {
-    console.error('Orders API POST error:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    logPortalOrderError(
+      'route_unexpected',
+      { reference, step: 'route_catch' },
+      error
+    );
+    return portalOrderErrorResponse(
+      500,
+      'Error interno al procesar el pedido.',
+      reference,
+      'UNEXPECTED'
+    );
   }
+}
+
+function logPortalOrderWarnRoute(
+  reference: string,
+  event: string,
+  userId: string,
+  extra: Record<string, unknown>
+) {
+  console.warn(
+    JSON.stringify({
+      scope: PORTAL_ORDER_LOG_SCOPE,
+      level: 'warn',
+      event,
+      reference,
+      userId,
+      ...extra,
+    })
+  );
 }

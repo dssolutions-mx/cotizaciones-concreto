@@ -14,6 +14,29 @@ import {
   getBusinessDateString,
   isDeliveryDateBeforeBusinessToday,
 } from '../../src/lib/client-portal/businessDate';
+import {
+  createPortalOrderReference,
+  inferPortalOrderErrorCode,
+  parsePortalOrderApiError,
+  portalOrderSupportLine,
+} from '../../src/lib/client-portal/portalOrderDiagnostics';
+
+assert.match(createPortalOrderReference(), /^PO-\d{8}-[A-Z2-9]{5}$/);
+assert.ok(portalOrderSupportLine('PO-20260101-ABC12').includes('PO-20260101-ABC12'));
+
+const parsed = parsePortalOrderApiError({
+  error: 'El volumen debe ser mayor a cero.',
+  reference: 'PO-20260101-XYZ99',
+  code: 'VALIDATION_VOLUME',
+});
+assert.strictEqual(parsed.message, 'El volumen debe ser mayor a cero.');
+assert.strictEqual(parsed.reference, 'PO-20260101-XYZ99');
+assert.strictEqual(parsed.code, 'VALIDATION_VOLUME');
+
+assert.strictEqual(
+  inferPortalOrderErrorCode({ code: '23505', message: 'duplicate order_number' }, 'insert_order'),
+  'ORDER_NUMBER_CONFLICT'
+);
 
 assert.strictEqual(parseValidConstructionSiteId('not-a-uuid'), null);
 assert.strictEqual(

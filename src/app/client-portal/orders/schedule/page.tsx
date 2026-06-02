@@ -19,6 +19,10 @@ import { es } from 'date-fns/locale';
 import { OptionalDeliveryLocationSection } from '@/components/client-portal/orders/OptionalDeliveryLocationSection';
 import { generateGoogleMapsUrl, validateCoordinates } from '@/lib/maps/deliveryCoordinates';
 import { getBusinessDateString } from '@/lib/client-portal/businessDate';
+import {
+  parsePortalOrderApiError,
+  type PortalOrderSubmitError,
+} from '@/lib/client-portal/portalOrderDiagnostics';
 
 type Site = { id: string; name: string };
 type Plant = { id: string; name: string };
@@ -178,6 +182,7 @@ export default function ScheduleOrderPage() {
   const [deliveryLongitude, setDeliveryLongitude] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<PortalOrderSubmitError | null>(null);
   const [quoteExtras, setQuoteExtras] = useState<QuoteExtraItem[]>([]);
   const [extrasLoading, setExtrasLoading] = useState(false);
   const [selectedAdditionalIds, setSelectedAdditionalIds] = useState<Set<string>>(new Set());
@@ -552,6 +557,7 @@ export default function ScheduleOrderPage() {
     try {
       setSubmitting(true);
       setError(null);
+      setSubmitError(null);
 
       // Determine construction_site_id: only send UUID if from dropdown, not "other"
       let siteIdToSend: string | null = null;
@@ -601,14 +607,19 @@ export default function ScheduleOrderPage() {
       const res = await fetch('/api/client-portal/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'No se pudo crear el pedido');
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const headerRef = res.headers.get('X-Portal-Order-Reference') ?? undefined;
+        setSubmitError(parsePortalOrderApiError(json, headerRef));
+        return;
+      }
 
       router.replace(`/client-portal/orders/${json.id}`);
-    } catch (e: any) {
-      setError(e?.message || 'Error al crear el pedido');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Error al crear el pedido';
+      setError(msg);
     } finally {
       setSubmitting(false);
     }
@@ -670,6 +681,30 @@ export default function ScheduleOrderPage() {
           {error && (
             <div className="mb-4 p-4 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 text-callout border border-red-200 dark:border-red-800">
               {error}
+            </div>
+          )}
+
+          {submitError && (
+            <div
+              className="mb-4 p-4 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800"
+              role="alert"
+            >
+              <p className="text-callout font-medium">{submitError.message}</p>
+              {submitError.reference && (
+                <div className="mt-3 pt-3 border-t border-red-200/80 dark:border-red-800/80">
+                  <p className="text-footnote text-red-600/90 dark:text-red-400/90 mb-1">
+                    Comparte esta referencia con soporte:
+                  </p>
+                  <p className="font-mono text-callout font-semibold tracking-wide select-all">
+                    {submitError.reference}
+                  </p>
+                  {submitError.code && (
+                    <p className="text-caption text-red-500/80 dark:text-red-400/70 mt-1">
+                      Código: {submitError.code}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
