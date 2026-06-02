@@ -25,6 +25,7 @@ import MuestreoEnvironmentalCard from '@/components/quality/muestreos/detail/Mue
 import MuestreoFieldMeasurementsCard from '@/components/quality/muestreos/detail/MuestreoFieldMeasurementsCard'
 import MuestreoSampleSummaryCard from '@/components/quality/muestreos/detail/MuestreoSampleSummaryCard'
 import MuestreoInformeSheet from '@/components/quality/muestreos/detail/MuestreoInformeSheet'
+import MuestreoEditDialog from '@/components/quality/muestreos/detail/MuestreoEditDialog'
 import CrossPlantProductionCard, {
   type ProductionRemision,
 } from '@/components/quality/muestreos/detail/CrossPlantProductionCard'
@@ -73,6 +74,7 @@ export default function MuestreoDetailPage() {
   const [emaInstrumentosLoading, setEmaInstrumentosLoading] = useState(false)
   const [showAddEquipmentDialog, setShowAddEquipmentDialog] = useState(false)
   const [informeSheetOpen, setInformeSheetOpen] = useState(false)
+  const [editDialogOpen, setEditDialogOpen] = useState(false)
 
   const applyDetailBundle = useCallback((bundle: MuestreoDetailBundle) => {
     setDetailBundle(bundle)
@@ -268,8 +270,18 @@ export default function MuestreoDetailPage() {
         statusLabel={pageStatus.label}
         statusClassName={pageStatus.className}
         onOpenInforme={() => setInformeSheetOpen(true)}
+        onOpenEdit={canEditMuestreoEquipment ? () => setEditDialogOpen(true) : undefined}
         onDeleteMuestreo={() => setShowDeleteMuestreoDialog(true)}
       />
+
+      {canEditMuestreoEquipment && (
+        <MuestreoEditDialog
+          open={editDialogOpen}
+          onOpenChange={setEditDialogOpen}
+          muestreo={muestreo}
+          onSaved={() => void fetchMuestreoDetails()}
+        />
+      )}
 
       <MuestreoInformeSheet
         open={informeSheetOpen}

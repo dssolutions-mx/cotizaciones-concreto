@@ -4,6 +4,7 @@ import { loadMuestreoDetailBundle } from '@/services/muestreoDetailService';
 
 const NO_STORE = { 'Cache-Control': 'no-store' as const };
 const READ_ROLES = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE'];
+const WRITE_ROLES = [...READ_ROLES, 'ADMIN', 'ADMIN_OPERATIONS'];
 
 export async function GET(
   _request: NextRequest,
@@ -158,12 +159,21 @@ export async function PUT(
     }
 
     // Check if user has permission to update muestreos
-    const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE'];
-    if (!allowedRoles.includes(profile.role)) {
+    if (!WRITE_ROLES.includes(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
     const body = await request.json();
+
+    const { data: existing, error: existingError } = await supabase
+      .from('muestreos')
+      .select('id, fecha_muestreo, hora_muestreo, event_timezone')
+      .eq('id', id)
+      .single();
+
+    if (existingError || !existing) {
+      return NextResponse.json({ error: 'Muestreo not found' }, { status: 404 });
+    }
     
     // Validate revenimiento_sitio if provided
     if (body.revenimiento_sitio !== undefined) {
@@ -192,28 +202,60 @@ export async function PUT(
       updated_at: new Date().toISOString()
     };
 
-    // Only include fields that are provided and allowed to be updated
     const allowedFields = [
       'revenimiento_sitio',
       'masa_unitaria',
       'temperatura_ambiente',
       'temperatura_concreto',
       'contenido_aire',
-      'sampling_notes'
-    ];
+      'sampling_notes',
+      'manual_reference',
+    ] as const;
 
-    allowedFields.forEach(field => {
+    for (const field of allowedFields) {
       if (body[field] !== undefined) {
-        // Round masa_unitaria to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
         if (field === 'masa_unitaria' && typeof body[field] === 'number') {
           updateData[field] = Math.round(body[field]);
         } else {
           updateData[field] = body[field];
         }
       }
-    });
+    }
 
-    // Update muestreo
+    if (body.plant_id !== undefined) {
+      const plantId = String(body.plant_id);
+      const { data: plant, error: plantError } = await supabase
+        .from('plants')
+        .select('id, code')
+        .eq('id', plantId)
+        .eq('is_active', true)
+        .single();
+
+      if (plantError || !plant) {
+        return NextResponse.json({ error: 'Planta no válida o inactiva' }, { status: 400 });
+      }
+
+      updateData.plant_id = plant.id;
+      updateData.planta = plant.code;
+    }
+
+    const fechaProvided = body.fecha_muestreo !== undefined;
+    const horaProvided = body.hora_muestreo !== undefined;
+    if (fechaProvided || horaProvided) {
+      const fecha = fechaProvided ? String(body.fecha_muestreo) : existing.fecha_muestreo;
+      const horaRaw = horaProvided ? String(body.hora_muestreo) : existing.hora_muestreo ?? '12:00:00';
+      const hora = horaRaw.length === 5 ? `${horaRaw}:00` : horaRaw;
+      const [y, m, d] = fecha.split('-').map((n: string) => parseInt(n, 10));
+      const [hh, mm, ss] = hora.split(':').map((n: string) => parseInt(n, 10));
+      if ([y, m, d, hh, mm].some((n) => Number.isNaN(n))) {
+        return NextResponse.json({ error: 'Fecha u hora de muestreo no válida' }, { status: 400 });
+      }
+      const ts = new Date(y, m - 1, d, hh, mm, Number.isNaN(ss) ? 0 : ss);
+      updateData.fecha_muestreo = fecha;
+      updateData.hora_muestreo = hora;
+      updateData.fecha_muestreo_ts = ts.toISOString();
+    }
+
     const { data: muestreo, error: updateError } = await supabase
       .from('muestreos')
       .update(updateData)
@@ -224,6 +266,32 @@ export async function PUT(
     if (updateError) {
       console.error('Error updating muestreo:', updateError);
       return NextResponse.json({ error: 'Failed to update muestreo' }, { status: 500 });
+    }
+
+    if (updateData.plant_id) {
+      const { error: muestrasError } = await supabase
+        .from('muestras')
+        .update({ plant_id: updateData.plant_id })
+        .eq('muestreo_id', id);
+
+      if (muestrasError) {
+        console.error('Error updating muestras plant_id:', muestrasError);
+        return NextResponse.json({ error: 'Muestreo guardado pero falló actualizar muestras' }, { status: 500 });
+      }
+
+      const { data: muestraRows } = await supabase.from('muestras').select('id').eq('muestreo_id', id);
+      const muestraIds = (muestraRows ?? []).map((r) => r.id);
+      if (muestraIds.length > 0) {
+        const { error: ensayosError } = await supabase
+          .from('ensayos')
+          .update({ plant_id: updateData.plant_id })
+          .in('muestra_id', muestraIds);
+
+        if (ensayosError) {
+          console.error('Error updating ensayos plant_id:', ensayosError);
+          return NextResponse.json({ error: 'Muestreo guardado pero falló actualizar ensayos' }, { status: 500 });
+        }
+      }
     }
 
     return NextResponse.json({ muestreo });

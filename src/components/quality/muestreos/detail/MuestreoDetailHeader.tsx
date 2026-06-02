@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import { Award, ChevronLeft, MoreVertical, Trash2 } from 'lucide-react'
+import { Award, ChevronLeft, MoreVertical, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +20,7 @@ type Props = {
   statusLabel: string
   statusClassName: string
   onOpenInforme: () => void
+  onOpenEdit?: () => void
   onDeleteMuestreo: () => void
 }
 
@@ -29,6 +30,7 @@ export default function MuestreoDetailHeader({
   statusLabel,
   statusClassName,
   onOpenInforme,
+  onOpenEdit,
   onDeleteMuestreo,
 }: Props) {
   const router = useRouter()
@@ -74,6 +76,12 @@ export default function MuestreoDetailHeader({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
+            {onOpenEdit ? (
+              <DropdownMenuItem onClick={onOpenEdit}>
+                <Pencil className="h-4 w-4 mr-2" />
+                Editar muestreo…
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem onClick={onOpenInforme}>
               <Award className="h-4 w-4 mr-2" />
               Informe acreditado…

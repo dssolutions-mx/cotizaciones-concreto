@@ -2,8 +2,10 @@
 
 import React from 'react';
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Label } from '@/components/ui/label';
 import DecimalFieldInput from '@/components/quality/muestreos/DecimalFieldInput';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Info, Plus } from 'lucide-react';
 import FieldMeasurandBlock from '@/components/quality/muestreos/FieldMeasurandBlock';
@@ -28,14 +30,14 @@ type Props = {
   className?: string;
 };
 
-function MeasurandLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
+function MeasurandLabelContent({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
   const meta = MEASURAND_META[codigo];
   switch (codigo) {
     case 'REV':
-      return <FormLabel>Revenimiento en sitio ({meta.unidad})</FormLabel>;
+      return <>Revenimiento en sitio ({meta.unidad})</>;
     case 'TEMP':
       return (
-        <FormLabel className="flex items-center gap-1">
+        <>
           Temperatura del concreto ({meta.unidad})
           <Tooltip>
             <TooltipTrigger asChild>
@@ -45,11 +47,11 @@ function MeasurandLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
             </TooltipTrigger>
             <TooltipContent>Recomendado 10–35°C al muestreo. Válido 5–60°C.</TooltipContent>
           </Tooltip>
-        </FormLabel>
+        </>
       );
     case 'TEMP_AMB':
       return (
-        <FormLabel className="flex items-center gap-1">
+        <>
           Temperatura ambiente ({meta.unidad})
           <Tooltip>
             <TooltipTrigger asChild>
@@ -59,11 +61,11 @@ function MeasurandLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
             </TooltipTrigger>
             <TooltipContent>Recomendado 10–35°C. Válido de -10 a 60°C.</TooltipContent>
           </Tooltip>
-        </FormLabel>
+        </>
       );
     case 'AIRE':
       return (
-        <FormLabel className="flex items-center gap-1">
+        <>
           Contenido de aire ({meta.unidad})
           <Tooltip>
             <TooltipTrigger asChild>
@@ -73,11 +75,43 @@ function MeasurandLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
             </TooltipTrigger>
             <TooltipContent>Opcional. Rango válido 0–100%.</TooltipContent>
           </Tooltip>
-        </FormLabel>
+        </>
       );
     default:
-      return <FormLabel>{meta.label}</FormLabel>;
+      return <>{meta.label}</>;
   }
+}
+
+const measurandLabelClass = (codigo: MuestreoFieldMeasurandCodigo) =>
+  cn(codigo === 'TEMP' || codigo === 'TEMP_AMB' || codigo === 'AIRE' ? 'flex items-center gap-1' : undefined);
+
+function MeasurandFormLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
+  return (
+    <FormLabel className={measurandLabelClass(codigo)}>
+      <MeasurandLabelContent codigo={codigo} />
+    </FormLabel>
+  );
+}
+
+function MeasurandStandaloneLabel({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
+  return (
+    <Label className={cn('text-sm font-medium leading-none', measurandLabelClass(codigo))}>
+      <MeasurandLabelContent codigo={codigo} />
+    </Label>
+  );
+}
+
+function MeasurandFieldHint({ codigo }: { codigo: MuestreoFieldMeasurandCodigo }) {
+  if (codigo === 'TEMP') {
+    return <p className="text-sm text-muted-foreground">Rango recomendado 10–35°C (válido 5–60°C).</p>;
+  }
+  if (codigo === 'TEMP_AMB') {
+    return <p className="text-sm text-muted-foreground">Rango recomendado 10–35°C (válido -10 a 60°C).</p>;
+  }
+  if (codigo === 'AIRE') {
+    return <p className="text-sm text-muted-foreground">Opcional. Rango válido 0–100%.</p>;
+  }
+  return null;
 }
 
 export default function FieldMeasurandInput({
@@ -176,7 +210,7 @@ export default function FieldMeasurandInput({
       name={column}
       render={({ field }) => (
         <FormItem>
-          <MeasurandLabel codigo={codigo} />
+          <MeasurandFormLabel codigo={codigo} />
           <FormControl>
             <DecimalFieldInput
               value={field.value as number | undefined}
@@ -200,18 +234,17 @@ export default function FieldMeasurandInput({
       )}
     />
   ) : (
-    <FormItem>
-      <MeasurandLabel codigo={codigo} />
-      <FormControl>
-        <DecimalFieldInput
-          value={scalarValue}
-          decimals={meta.decimals}
-          allowNegative={allowNegative}
-          placeholder={codigo === 'AIRE' ? 'Opcional' : undefined}
-          onChange={writeScalar}
-        />
-      </FormControl>
-    </FormItem>
+    <div className="space-y-2">
+      <MeasurandStandaloneLabel codigo={codigo} />
+      <DecimalFieldInput
+        value={scalarValue}
+        decimals={meta.decimals}
+        allowNegative={allowNegative}
+        placeholder={codigo === 'AIRE' ? 'Opcional' : undefined}
+        onChange={writeScalar}
+      />
+      <MeasurandFieldHint codigo={codigo} />
+    </div>
   );
 
   return (
