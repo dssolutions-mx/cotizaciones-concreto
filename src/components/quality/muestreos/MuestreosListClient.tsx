@@ -43,6 +43,8 @@ import {
   X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { fetchMuestreos, fetchAllMuestreosForExport } from '@/services/qualityMuestreoService'
 import { downloadInternalMuestreosExcel } from '@/lib/quality/muestreosExcelExport'
 import { toast } from 'sonner'
@@ -61,6 +63,7 @@ import {
   formatPorcentajeCumplimiento,
   getConstructionSite,
   filterAndSortMuestreosList,
+  resistenciaResumenVisible,
   resistanceDisplayClass,
   type SortOption,
   type SpecimenDotKind,
@@ -75,6 +78,7 @@ const PAGE_SIZE = 50
 const COL_SPAN = 8
 
 const ROW_HINT_STORAGE_KEY = 'quality.muestreos.listRowHintDismissed'
+const RESISTENCIA_CON_FACTOR_STORAGE_KEY = 'quality.muestreos.listResistenciaConFactor'
 
 const CLASIFICACIONES = ['FC', 'MR']
 
@@ -168,14 +172,26 @@ export default function MuestreosListClient() {
   const rowClickTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingToggleIdRef = React.useRef<string | null>(null)
   const [rowHintDismissed, setRowHintDismissed] = useState(false)
+  const [mostrarConFactor, setMostrarConFactor] = useState(true)
 
   useEffect(() => {
     try {
       if (typeof window !== 'undefined' && localStorage.getItem(ROW_HINT_STORAGE_KEY) === '1') {
         setRowHintDismissed(true)
       }
+      const stored = localStorage.getItem(RESISTENCIA_CON_FACTOR_STORAGE_KEY)
+      if (stored === '0') setMostrarConFactor(false)
     } catch {
       /* keep visible */
+    }
+  }, [])
+
+  const handleMostrarConFactorChange = useCallback((checked: boolean) => {
+    setMostrarConFactor(checked)
+    try {
+      localStorage.setItem(RESISTENCIA_CON_FACTOR_STORAGE_KEY, checked ? '1' : '0')
+    } catch {
+      /* ignore */
     }
   }, [])
 
@@ -664,8 +680,29 @@ export default function MuestreosListClient() {
                   <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[120px]">
                     Especímenes
                   </TableHead>
-                  <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[150px]">
-                    Resistencia
+                  <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[168px]">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span>Resistencia</span>
+                      <div
+                        className="flex items-center gap-1.5 normal-case font-normal"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                      >
+                        <Switch
+                          id="muestreos-resistencia-con-factor"
+                          checked={mostrarConFactor}
+                          onCheckedChange={handleMostrarConFactorChange}
+                          className="scale-[0.72] data-[state=checked]:bg-stone-700"
+                          aria-label="Mostrar resistencia con factor de corrección de probeta"
+                        />
+                        <Label
+                          htmlFor="muestreos-resistencia-con-factor"
+                          className="text-[10px] text-stone-600 font-normal cursor-pointer leading-none"
+                        >
+                          Con factor
+                        </Label>
+                      </div>
+                    </div>
                   </TableHead>
                   <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[110px]">
                     Estado
@@ -679,8 +716,12 @@ export default function MuestreosListClient() {
                 {filteredMuestreos.map((muestreo) => {
                   const id = muestreo.id as string
                   const isOpen = expandedId === id
-                  const { valorNum, edadDias, porcentajeCumplimiento, conFactorCorreccion } =
-                    calcularResistencia(muestreo)
+                  const resumenResistencia = calcularResistencia(muestreo)
+                  const { valorNum, porcentajeCumplimiento } = resistenciaResumenVisible(
+                    resumenResistencia,
+                    mostrarConFactor
+                  )
+                  const { edadDias } = resumenResistencia
                   const fc = muestreo.remision?.recipe?.strength_fc ?? null
                   const { dots, nextPendingFecha } = computeSpecimenDots(muestreo)
                   const clientName =
@@ -801,11 +842,9 @@ export default function MuestreosListClient() {
                                   {formatPorcentajeCumplimiento(porcentajeCumplimiento)} cumpl.
                                 </span>
                               )}
-                              {conFactorCorreccion != null && (
-                                <span className="text-[10px] text-stone-500">
-                                  {conFactorCorreccion ? 'Con factor' : 'Sin factor'}
-                                </span>
-                              )}
+                              <span className="text-[10px] text-stone-500">
+                                {mostrarConFactor ? 'Corregida' : 'Directa'}
+                              </span>
                               {edadDias != null && (
                                 <span className="text-[10px] text-stone-400">{edadDias}d</span>
                               )}
@@ -857,7 +896,13 @@ export default function MuestreosListClient() {
                           </div>
                         </TableCell>
                       </TableRow>
-                      {isOpen && <MuestreoExpandedRow muestreo={muestreo} colSpan={COL_SPAN} />}
+                      {isOpen && (
+                        <MuestreoExpandedRow
+                          muestreo={muestreo}
+                          colSpan={COL_SPAN}
+                          mostrarConFactor={mostrarConFactor}
+                        />
+                      )}
                     </React.Fragment>
                   )
                 })}

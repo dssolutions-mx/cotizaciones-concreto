@@ -1,8 +1,9 @@
 import type { MuestreoWithRelations, MuestraWithRelations, Ensayo } from '@/types/quality'
 import {
   resolveEnsayoResistenciaReportada,
+  resolveEnsayoResistenciaSinFactor,
   resolveEnsayoPorcentajeCumplimiento,
-  ensayoUsaFactorCorreccion,
+  recomputeEnsayoCompliance,
   calendarDateToChartMs,
 } from '@/lib/qualityHelpers'
 import { parseLocalDate } from '@/lib/parseLocalDate'
@@ -52,17 +53,40 @@ function ensayosParaResumenMuestreo(
   }
 }
 
-export function calcularResistencia(muestreo: MuestreoWithRelations): {
-  valorNum: number | null
+export type ResistenciaResumenMuestreo = {
+  valorConFactor: number | null
+  valorSinFactor: number | null
+  porcentajeConFactor: number | null
+  porcentajeSinFactor: number | null
   edadDias: number | null
-  porcentajeCumplimiento: number | null
-  conFactorCorreccion: boolean | null
-} {
-  const empty = {
-    valorNum: null,
+}
+
+export function resistenciaResumenVisible(
+  resumen: ResistenciaResumenMuestreo,
+  mostrarConFactor: boolean
+): { valorNum: number | null; porcentajeCumplimiento: number | null } {
+  return mostrarConFactor
+    ? { valorNum: resumen.valorConFactor, porcentajeCumplimiento: resumen.porcentajeConFactor }
+    : { valorNum: resumen.valorSinFactor, porcentajeCumplimiento: resumen.porcentajeSinFactor }
+}
+
+function promedioValores(values: number[]): number | null {
+  if (values.length === 0) return null
+  return Math.round(values.reduce((a, b) => a + b, 0) / values.length)
+}
+
+function promedioNumeros(values: number[]): number | null {
+  if (values.length === 0) return null
+  return values.reduce((a, b) => a + b, 0) / values.length
+}
+
+export function calcularResistencia(muestreo: MuestreoWithRelations): ResistenciaResumenMuestreo {
+  const empty: ResistenciaResumenMuestreo = {
+    valorConFactor: null,
+    valorSinFactor: null,
+    porcentajeConFactor: null,
+    porcentajeSinFactor: null,
     edadDias: null,
-    porcentajeCumplimiento: null,
-    conFactorCorreccion: null,
   }
 
   const resumen = ensayosParaResumenMuestreo(muestreo)
@@ -81,27 +105,29 @@ export function calcularResistencia(muestreo: MuestreoWithRelations): {
     return Math.round(diff / (1000 * 60 * 60 * 24))
   }
 
-  const resistencias = resumen.ensayos
+  const conFactorVals = resumen.ensayos
     .map((e) => resolveEnsayoResistenciaReportada(e))
     .filter((v) => v > 0)
-  if (resistencias.length === 0) return empty
+  const sinFactorVals = resumen.ensayos
+    .map((e) => resolveEnsayoResistenciaSinFactor(e))
+    .filter((v) => v > 0)
 
-  const porcentajes = resumen.ensayos
+  if (conFactorVals.length === 0 && sinFactorVals.length === 0) return empty
+
+  const porcentajesCon = resumen.ensayos
     .filter((e) => resolveEnsayoResistenciaReportada(e) > 0)
     .map((e) => resolveEnsayoPorcentajeCumplimiento(e, fc))
 
-  const promedio = resistencias.reduce((a, b) => a + b, 0) / resistencias.length
-  const promedioPct =
-    porcentajes.length > 0
-      ? porcentajes.reduce((a, b) => a + b, 0) / porcentajes.length
-      : null
-  const conFactor = resumen.ensayos.some((e) => ensayoUsaFactorCorreccion(e))
+  const porcentajesSin = resumen.ensayos
+    .filter((e) => resolveEnsayoResistenciaSinFactor(e) > 0)
+    .map((e) => recomputeEnsayoCompliance(resolveEnsayoResistenciaSinFactor(e), fc ?? 0))
 
   return {
-    valorNum: Math.round(promedio),
+    valorConFactor: promedioValores(conFactorVals),
+    valorSinFactor: promedioValores(sinFactorVals),
+    porcentajeConFactor: promedioNumeros(porcentajesCon),
+    porcentajeSinFactor: promedioNumeros(porcentajesSin),
     edadDias: resumen.edadMuestra ? calcEdad(resumen.edadMuestra) : null,
-    porcentajeCumplimiento: promedioPct,
-    conFactorCorreccion: conFactor,
   }
 }
 
@@ -166,15 +192,15 @@ export function computeMuestreoKpis(muestreos: MuestreoWithRelations[]) {
   let passDenom = 0
 
   for (const m of muestreos) {
-    const { valorNum } = calcularResistencia(m)
+    const { valorConFactor } = calcularResistencia(m)
     const fc = m.remision?.recipe?.strength_fc
-    if (valorNum != null) {
-      sumRes += valorNum
+    if (valorConFactor != null) {
+      sumRes += valorConFactor
       countRes++
     }
-    if (valorNum != null && fc != null && fc > 0) {
+    if (valorConFactor != null && fc != null && fc > 0) {
       passDenom++
-      if (valorNum >= fc) passCount++
+      if (valorConFactor >= fc) passCount++
     }
   }
 

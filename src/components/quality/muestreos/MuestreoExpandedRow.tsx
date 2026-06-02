@@ -8,9 +8,10 @@ import { Circle, Square, RectangleHorizontal, Star, ExternalLink } from 'lucide-
 import { cn, formatDate } from '@/lib/utils'
 import type { Ensayo, MuestreoWithRelations, MuestraWithRelations } from '@/types/quality'
 import {
-  ensayoUsaFactorCorreccion,
+  recomputeEnsayoCompliance,
   resolveEnsayoPorcentajeCumplimiento,
   resolveEnsayoResistenciaReportada,
+  resolveEnsayoResistenciaSinFactor,
 } from '@/lib/qualityHelpers'
 import {
   formatPorcentajeCumplimiento,
@@ -46,9 +47,10 @@ function primaryEnsayoIdForView(muestra: MuestraWithRelations): string | null {
 type Props = {
   muestreo: MuestreoWithRelations
   colSpan: number
+  mostrarConFactor: boolean
 }
 
-export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
+export default function MuestreoExpandedRow({ muestreo, colSpan, mostrarConFactor }: Props) {
   const muestras = [...(muestreo.muestras || [])].sort(
     (a, b) =>
       new Date(a.fecha_programada_ensayo).getTime() - new Date(b.fecha_programada_ensayo).getTime()
@@ -67,12 +69,20 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                       new Date(b.fecha_ensayo).getTime() - new Date(a.fecha_ensayo).getTime()
                   )[0]
                 : undefined
-            const resistencia = ensayo ? resolveEnsayoResistenciaReportada(ensayo as Ensayo) : null
+            const resistencia = ensayo
+              ? mostrarConFactor
+                ? resolveEnsayoResistenciaReportada(ensayo as Ensayo)
+                : resolveEnsayoResistenciaSinFactor(ensayo as Ensayo)
+              : null
             const pct =
               ensayo && resistencia != null && resistencia > 0
-                ? resolveEnsayoPorcentajeCumplimiento(ensayo as Ensayo, fc ?? undefined)
+                ? mostrarConFactor
+                  ? resolveEnsayoPorcentajeCumplimiento(ensayo as Ensayo, fc ?? undefined)
+                  : recomputeEnsayoCompliance(
+                      resolveEnsayoResistenciaSinFactor(ensayo as Ensayo),
+                      fc ?? 0
+                    )
                 : null
-            const conFactor = ensayo ? ensayoUsaFactorCorreccion(ensayo as Ensayo) : null
 
             const ensayoViewId = primaryEnsayoIdForView(m)
             const isDiscarded = m.estado === 'DESCARTADO'
@@ -131,11 +141,9 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                         {formatPorcentajeCumplimiento(pct)} cumpl.
                       </div>
                     )}
-                    {conFactor != null && (
-                      <div className="text-[10px] text-stone-500">
-                        {conFactor ? 'Con factor' : 'Sin factor'}
-                      </div>
-                    )}
+                    <div className="text-[10px] text-stone-500">
+                      {mostrarConFactor ? 'Corregida' : 'Directa'}
+                    </div>
                   </div>
                 )}
                 {m.estado === 'PENDIENTE' && (

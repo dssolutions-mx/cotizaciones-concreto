@@ -55,17 +55,6 @@ export function resolveEnsayoPorcentajeCumplimiento(e: EnsayoResistenciaFields, 
   return recomputeEnsayoCompliance(r, recipeFc || 0);
 }
 
-/** True when reported strength includes a specimen correction factor (≠ 1 or persisted corregida). */
-export function ensayoUsaFactorCorreccion(e: EnsayoResistenciaFields): boolean {
-  const corrected = Number(e.resistencia_corregida ?? e.resistenciaCorregida);
-  const raw = Number(e.resistencia_calculada ?? e.resistenciaCalculada) || 0;
-  if (Number.isFinite(corrected) && corrected > 0 && raw > 0 && Math.abs(corrected - raw) > 0.01) {
-    return true;
-  }
-  const f = Number(e.factor_correccion ?? e.factorCorreccion);
-  return Number.isFinite(f) && f > 0 && Math.abs(f - 1) > 0.0001;
-}
-
 /**
  * @deprecated Use resolveEnsayoResistenciaReportada with the full ensayo object from the API.
  * Passing only a number returns raw strength (no client-side factor).
