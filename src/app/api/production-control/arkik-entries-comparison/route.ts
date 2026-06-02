@@ -160,6 +160,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       data: result,
+      parse_meta: parsed.meta,
       plant_id: plantId,
       date_from: dateFrom,
       date_to: dateTo,

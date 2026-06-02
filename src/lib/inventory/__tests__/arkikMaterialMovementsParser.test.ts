@@ -1,15 +1,21 @@
 import assert from 'node:assert';
 import * as XLSX from 'xlsx';
 import {
-  detectArkikTabularColumnMap,
+  canonicalArkikMovementType,
+  detectArkikSectionColumnMap,
   extractArkikComentarios,
+  isArkikConsumoMovementType,
   isArkikEntradaMovementType,
   parseArkikMaterialMovementsWorkbook,
 } from '@/lib/inventory/arkikMaterialMovementsParser';
 
-assert.strictEqual(isArkikEntradaMovementType('Entrada'), true);
+assert.strictEqual(canonicalArkikMovementType('Salida por Ajuste'), 'Salida por Ajuste');
+assert.strictEqual(canonicalArkikMovementType('ENTRADA POR AJUSTE'), 'Entrada por Ajuste');
+assert.ok(isArkikConsumoMovementType('Salida por Ajuste'));
+assert.ok(isArkikEntradaMovementType('Entrada por Ajuste'));
 
 const tabularHeaders = [
+  '',
   'Fecha de movimiento',
   'Tipo de movimiento',
   'Cantidad',
@@ -19,14 +25,13 @@ const tabularHeaders = [
   'Fecha de creación',
   'Comentarios',
 ];
-const colMap = detectArkikTabularColumnMap(tabularHeaders);
+const colMap = detectArkikSectionColumnMap(tabularHeaders);
 assert.ok(colMap);
-assert.strictEqual(colMap!.fecha_creacion, 6);
-assert.strictEqual(colMap!.comentarios, 7);
-assert.strictEqual(colMap!.comentarios, colMap!.fecha_creacion + 1);
-assert.strictEqual(colMap!.usuario, 5);
+assert.strictEqual(colMap!.fecha_creacion, 7);
+assert.strictEqual(colMap!.comentarios, 8);
 
 const dataRow = [
+  '',
   '24/04/2026',
   'Entrada',
   '50.00',
@@ -36,43 +41,34 @@ const dataRow = [
   '24/04/2026 09:01',
   'ENTRADA FICTICIA',
 ];
-
-const headersSinLabelComentarios = [
-  'Fecha de movimiento',
-  'Tipo de movimiento',
-  'Cantidad',
-  'Volumétrico',
-  'Remisión',
-  'Usuario',
-  'Fecha de creación',
-  'Notas internas',
-];
-const map2 = detectArkikTabularColumnMap(headersSinLabelComentarios);
-assert.strictEqual(map2!.comentarios, 7);
-assert.strictEqual(extractArkikComentarios(dataRow, map2!), 'ENTRADA FICTICIA');
 assert.strictEqual(extractArkikComentarios(dataRow, colMap!), 'ENTRADA FICTICIA');
 
-const wbTabular = XLSX.utils.book_new();
-const tabularRows: unknown[][] = [
+const wb = XLSX.utils.book_new();
+const rows: unknown[][] = [
   ['Material|Proveedor', '', '', '', '', '', 'CEM001|Prov A|T'],
+  ['', 'Unidad de medida', '', 'T', '', '', ''],
   tabularHeaders,
   dataRow,
+  [
+    '',
+    '25/04/2026',
+    'Salida por Ajuste',
+    '2.5',
+    '0',
+    '',
+    'DOSIFICADOR',
+    '25/04/2026 10:00',
+    'AJUSTE MERMA',
+  ],
 ];
-XLSX.utils.book_append_sheet(wbTabular, XLSX.utils.aoa_to_sheet(tabularRows), 'Mov');
-const tabularParsed = parseArkikMaterialMovementsWorkbook(wbTabular);
-assert.strictEqual(tabularParsed.entradas_sin_remision.length, 1);
-assert.strictEqual(tabularParsed.entradas_sin_remision[0].notas, 'ENTRADA FICTICIA');
-assert.notStrictEqual(tabularParsed.entradas_sin_remision[0].notas, 'DOSIFICADOR');
+XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Mov');
+const parsed = parseArkikMaterialMovementsWorkbook(wb);
 
-const wbLegacy = XLSX.utils.book_new();
-const legacyRows: unknown[][] = [
-  ['Material|Proveedor', '', '', '', '', '', 'CEM001|Prov A|T'],
-  ['Unidad de medida', '', '', '', '', '', 'T'],
-  ['', '2026-05-10', 'Entrega matutina', '', '', 'Entrada', 'CEM001|Prov A|T', '', '', 10, '', '', '', '', '85191'],
-];
-XLSX.utils.book_append_sheet(wbLegacy, XLSX.utils.aoa_to_sheet(legacyRows), 'Mov');
-const legacyParsed = parseArkikMaterialMovementsWorkbook(wbLegacy);
-assert.strictEqual(legacyParsed.entradas.length, 1);
-assert.strictEqual(legacyParsed.entradas[0].remision, '85191');
+assert.strictEqual(parsed.entradas_sin_remision.length, 1);
+assert.strictEqual(parsed.entradas_sin_remision[0].notas, 'ENTRADA FICTICIA');
+assert.strictEqual(parsed.consumos_sin_remision.length, 1);
+assert.strictEqual(parsed.consumos_sin_remision[0].movement_type, 'Salida por Ajuste');
+assert.strictEqual(parsed.consumos_sin_remision[0].notas, 'AJUSTE MERMA');
+assert.strictEqual(parsed.meta.by_tipo['Salida por Ajuste'], 1);
 
 console.log('arkikMaterialMovementsParser.test.ts: ok');

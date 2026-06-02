@@ -76,6 +76,10 @@ export default function ArkikEntriesComparator() {
   const [dateTo, setDateTo] = useState(mb.to)
   const [comparing, setComparing] = useState(false)
   const [result, setResult] = useState<ArkikReconciliationResult | null>(null)
+  const [parseMeta, setParseMeta] = useState<{
+    total_movements: number
+    by_tipo: Record<string, number>
+  } | null>(null)
   const [lastFileName, setLastFileName] = useState<string | null>(null)
 
   const runComparison = useCallback(async () => {
@@ -99,6 +103,7 @@ export default function ArkikEntriesComparator() {
 
     setComparing(true)
     setResult(null)
+    setParseMeta(null)
     try {
       const fd = new FormData()
       fd.set('arkik_file', file)
@@ -115,6 +120,11 @@ export default function ArkikEntriesComparator() {
         throw new Error(json.error || 'Error al comparar')
       }
       setResult(json.data as ArkikReconciliationResult)
+      setParseMeta(
+        json.parse_meta && typeof json.parse_meta === 'object'
+          ? (json.parse_meta as { total_movements: number; by_tipo: Record<string, number> })
+          : null
+      )
       setLastFileName(json.file_name ?? file.name)
       toast.success('Comparación completada')
     } catch (e) {
@@ -285,6 +295,15 @@ export default function ArkikEntriesComparator() {
               )}
               {lastFileName ? (
                 <p className="text-xs mt-1 opacity-80">Archivo: {lastFileName}</p>
+              ) : null}
+              {parseMeta && parseMeta.total_movements > 0 ? (
+                <p className="text-xs mt-1 opacity-80">
+                  Movimientos leídos en Excel: {parseMeta.total_movements} (
+                  {Object.entries(parseMeta.by_tipo)
+                    .map(([tipo, n]) => `${tipo}: ${n}`)
+                    .join(' · ')}
+                  )
+                </p>
               ) : null}
             </div>
           </div>
@@ -695,10 +714,10 @@ function ConsumoReconciliationPanel({
   return (
     <>
       <p className="text-sm text-stone-600">
-        Movimientos Arkik tipo <strong>Consumo</strong> (u otros de salida) <em>sin remisión</em>,
-        comparados con <strong>ajustes negativos</strong> del sistema que tampoco tienen remisión
-        en referencia. Clave: material + fecha + cantidad en <strong>kg</strong> (Arkik convertido
-        desde T, kg, etc.).
+        Incluye <strong>Consumo</strong> y <strong>Salida por Ajuste</strong> del Excel, comparados
+        con <strong>ajustes negativos</strong> sin remisión en referencia. Clave: material + fecha +
+        cantidad en <strong>kg</strong>. El <strong>comentario</strong> es la columna después de
+        «Fecha de creación».
       </p>
 
       <div className="grid gap-3 sm:grid-cols-3">

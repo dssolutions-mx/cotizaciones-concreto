@@ -18,6 +18,7 @@ const excel = [
   {
     material: 'CEM001',
     proveedor: 'Proveedor A',
+    movement_type: 'Entrada',
     remision: '085191',
     notas: 'Entrega matutina',
     cantidad: 10,
@@ -53,6 +54,7 @@ const sinRem = compareEntradasSinRemision(
     {
       material: 'CEM001',
       proveedor: 'P',
+      movement_type: 'Entrada',
       notas: 'Sin folio proveedor',
       cantidad: 1,
       unit_arkik: 'T',

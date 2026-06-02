@@ -1,28 +1,59 @@
 import * as XLSX from 'xlsx';
 
-/** One "Entrada" row from Arkik Movimientos de Material export (con remisión). */
+/** Arkik movement types as they appear in exports (exact labels). */
+export const ARKIK_MOVEMENT_TYPES = [
+  'Entrada',
+  'Entrada por Ajuste',
+  'Salida por Ajuste',
+  'Consumo',
+  'Regreso a proveedor',
+] as const;
+
+export type ArkikMovementTypeLabel = (typeof ARKIK_MOVEMENT_TYPES)[number];
+
+function movementTypeLookupKey(label: string): string {
+  return normalizeMovementTypeLabel(label).toLowerCase();
+}
+
+const MOVEMENT_TYPE_LOOKUP = new Map<string, ArkikMovementTypeLabel>(
+  ARKIK_MOVEMENT_TYPES.map((t) => [movementTypeLookupKey(t), t])
+);
+
+/** Logical fields → column index within each material section (reset per block). */
+export type ArkikSectionColumnMap = {
+  fecha_mov: number;
+  tipo: number;
+  cantidad: number;
+  volumetrico: number;
+  remision: number;
+  usuario: number;
+  fecha_creacion: number;
+  comentarios: number;
+};
+
+/** One "Entrada" row (Entrada | Entrada por Ajuste) con remisión. */
 export type ArkikExcelEntry = {
   material: string;
   proveedor: string;
+  movement_type: string;
   remision: string;
-  /** Columna «Comentarios» del export tabular (no Usuario). */
   notas: string;
   cantidad: number;
   unit_arkik: string;
   fecha: string | null;
 };
 
-/** Entrada Arkik sin remisión en col. remisión — revisión manual / match por fecha+cantidad. */
 export type ArkikExcelEntradaSinRemision = {
   material: string;
   proveedor: string;
+  movement_type: string;
   notas: string;
   cantidad: number;
   unit_arkik: string;
   fecha: string | null;
 };
 
-/** Arkik consumption / outbound movement without remisión. */
+/** Consumo | Salida por Ajuste (ajustes negativos en sistema). */
 export type ArkikExcelConsumo = {
   material: string;
   proveedor: string;
@@ -33,7 +64,6 @@ export type ArkikExcelConsumo = {
   fecha: string | null;
 };
 
-/** Devolución a proveedor — suele registrarse como ajuste negativo con notas. */
 export type ArkikExcelRegresoProveedor = {
   material: string;
   proveedor: string;
@@ -50,9 +80,13 @@ export type ArkikParseResult = {
   entradas_sin_remision: ArkikExcelEntradaSinRemision[];
   consumos_sin_remision: ArkikExcelConsumo[];
   regresos_proveedor: ArkikExcelRegresoProveedor[];
+  meta: {
+    total_movements: number;
+    by_tipo: Record<string, number>;
+  };
 };
 
-/** Column indices from a «Fecha de movimiento / Tipo / … / Comentarios» header row. */
+/** @deprecated Use ArkikSectionColumnMap */
 export type ArkikTabularColumnMap = {
   fecha_movimiento: number;
   tipo_movimiento: number;
@@ -62,6 +96,17 @@ export type ArkikTabularColumnMap = {
   volumetrico: number;
   usuario: number;
   fecha_creacion: number;
+};
+
+const HEADER_TO_FIELD: Record<string, keyof ArkikSectionColumnMap> = {
+  'Fecha de movimiento': 'fecha_mov',
+  'Tipo de movimiento': 'tipo',
+  Cantidad: 'cantidad',
+  Volumétrico: 'volumetrico',
+  Remisión: 'remision',
+  Usuario: 'usuario',
+  'Fecha de creación': 'fecha_creacion',
+  Comentarios: 'comentarios',
 };
 
 function cellStr(val: unknown): string {
@@ -77,15 +122,16 @@ function toFloat(val: unknown): number {
   }
 }
 
-function normalizeHeaderLabel(val: unknown): string {
-  return cellStr(val)
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/\s+/g, ' ');
+function normalizeMovementTypeLabel(val: string): string {
+  return val.trim().replace(/\s+/g, ' ');
 }
 
-/** Excel serial or string → YYYY-MM-DD (matches xlrd behavior for Arkik exports). */
+/** Resolve to canonical Arkik label, or null if unknown / empty. */
+export function canonicalArkikMovementType(raw: string): ArkikMovementTypeLabel | null {
+  return MOVEMENT_TYPE_LOOKUP.get(movementTypeLookupKey(raw)) ?? null;
+}
+
+/** Excel serial or string → YYYY-MM-DD. */
 export function arkikExcelValueToDate(val: unknown, date1904 = false): string | null {
   if (val == null || val === '') return null;
   if (val instanceof Date) {
@@ -108,16 +154,12 @@ export function arkikExcelValueToDate(val: unknown, date1904 = false): string | 
 
   const dmy = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/.exec(s);
   if (dmy) {
-    const d = dmy[1].padStart(2, '0');
-    const m = dmy[2].padStart(2, '0');
-    const y = dmy[3];
-    return `${y}-${m}-${d}`;
+    return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
   }
 
   return null;
 }
 
-/** True when Arkik remisión column is blank / not usable for matching. */
 export function arkikRowHasRemision(remisionRaw: string): boolean {
   const s = remisionRaw.trim();
   if (!s) return false;
@@ -125,81 +167,66 @@ export function arkikRowHasRemision(remisionRaw: string): boolean {
   return true;
 }
 
-const CONSUMO_MOVEMENT_TYPES = new Set([
-  'consumo',
-  'consumición',
-  'consumicion',
-  'salida',
-]);
+export function isArkikEntradaMovementType(movementType: string): boolean {
+  const c = canonicalArkikMovementType(movementType);
+  return c === 'Entrada' || c === 'Entrada por Ajuste';
+}
 
 export function isArkikConsumoMovementType(movementType: string): boolean {
-  const t = movementType.trim().toLowerCase();
-  if (CONSUMO_MOVEMENT_TYPES.has(t)) return true;
-  return t.startsWith('consum');
+  const c = canonicalArkikMovementType(movementType);
+  return c === 'Consumo' || c === 'Salida por Ajuste';
 }
 
 export function isArkikRegresoProveedorMovementType(movementType: string): boolean {
-  return /regreso\s*a\s*proveedor/i.test(movementType.trim());
-}
-
-export function isArkikEntradaMovementType(movementType: string): boolean {
-  const t = movementType.trim().toLowerCase();
-  return t === 'entrada' || t.startsWith('entrada ');
+  return canonicalArkikMovementType(movementType) === 'Regreso a proveedor';
 }
 
 export function looksLikeArkikMovementType(value: string): boolean {
-  if (!value.trim()) return false;
-  return (
-    isArkikEntradaMovementType(value) ||
-    isArkikConsumoMovementType(value) ||
-    isArkikRegresoProveedorMovementType(value)
-  );
-}
-
-function findHeaderColumn(headers: string[], patterns: RegExp[]): number {
-  for (let i = 0; i < headers.length; i++) {
-    const h = headers[i];
-    if (patterns.some((p) => p.test(h))) return i;
-  }
-  return -1;
+  return canonicalArkikMovementType(value) != null;
 }
 
 /**
- * Detect Arkik tabular header: Fecha de movimiento | Tipo | Cantidad | … | Comentarios.
- * Returns null for sectioned-only rows (Material|Proveedor blocks).
+ * Per-section header row: col 1 = «Fecha de movimiento».
+ * Maps exact header labels; Comentarios data is at header col + 1 (Arkik quirk).
  */
-export function detectArkikTabularColumnMap(row: unknown[]): ArkikTabularColumnMap | null {
-  const headers = row.map((c) => normalizeHeaderLabel(c));
-  const tipo = findHeaderColumn(headers, [/tipo de movimiento/, /^tipo movimiento$/]);
-  const fechaMov = findHeaderColumn(headers, [
-    /fecha de movimiento/,
-    /^fecha movimiento$/,
-  ]);
-  if (tipo < 0 || fechaMov < 0) return null;
+export function detectArkikSectionColumnMap(row: unknown[]): ArkikSectionColumnMap | null {
+  if (cellStr(row[1]) !== 'Fecha de movimiento') return null;
 
-  const cantidad = findHeaderColumn(headers, [/^cantidad$/]);
-  const remision = findHeaderColumn(headers, [/remision/]);
-  const usuario = findHeaderColumn(headers, [/^usuario$/]);
-  const fechaCreacion = findHeaderColumn(headers, [/fecha de creacion/, /^fecha creacion$/]);
-
-  // Arkik layout: la columna después de «Fecha de creación» es siempre Comentarios.
-  let comentarios = -1;
-  if (fechaCreacion >= 0 && fechaCreacion + 1 < headers.length) {
-    comentarios = fechaCreacion + 1;
-  } else {
-    comentarios = findHeaderColumn(headers, [/comentario/]);
-    if (comentarios === usuario) comentarios = -1;
+  const partial: Partial<ArkikSectionColumnMap> = {};
+  for (let j = 0; j < row.length; j++) {
+    const label = cellStr(row[j]);
+    const field = HEADER_TO_FIELD[label];
+    if (field) partial[field] = j;
   }
 
+  if (partial.tipo == null || partial.fecha_mov == null) return null;
+
   return {
-    fecha_movimiento: fechaMov,
-    tipo_movimiento: tipo,
-    cantidad: cantidad >= 0 ? cantidad : 2,
-    remision: remision >= 0 ? remision : 4,
-    comentarios: comentarios >= 0 ? comentarios : -1,
-    volumetrico: findHeaderColumn(headers, [/volumetrico/, /volumetr/]),
-    usuario: usuario >= 0 ? usuario : -1,
-    fecha_creacion: fechaCreacion >= 0 ? fechaCreacion : -1,
+    fecha_mov: partial.fecha_mov,
+    tipo: partial.tipo,
+    cantidad: partial.cantidad ?? 2,
+    volumetrico: partial.volumetrico ?? -1,
+    remision: partial.remision ?? 4,
+    usuario: partial.usuario ?? -1,
+    fecha_creacion: partial.fecha_creacion ?? -1,
+    /** Header index for «Comentarios»; data read via extractArkikComentarios. */
+    comentarios: partial.comentarios ?? -1,
+  };
+}
+
+/** @deprecated Use detectArkikSectionColumnMap */
+export function detectArkikTabularColumnMap(row: unknown[]): ArkikTabularColumnMap | null {
+  const m = detectArkikSectionColumnMap(row);
+  if (!m) return null;
+  return {
+    fecha_movimiento: m.fecha_mov,
+    tipo_movimiento: m.tipo,
+    cantidad: m.cantidad,
+    remision: m.remision,
+    comentarios: m.comentarios,
+    volumetrico: m.volumetrico,
+    usuario: m.usuario,
+    fecha_creacion: m.fecha_creacion,
   };
 }
 
@@ -208,65 +235,72 @@ function cellAt(row: unknown[], idx: number): string {
   return cellStr(row[idx]);
 }
 
-/** Comentarios from mapped column (siguiente a Fecha de creación) — never Usuario. */
-export function extractArkikComentarios(row: unknown[], colMap: ArkikTabularColumnMap | null): string {
-  if (colMap) {
-    if (colMap.comentarios >= 0) return cellAt(row, colMap.comentarios);
-    if (colMap.fecha_creacion >= 0) return cellAt(row, colMap.fecha_creacion + 1);
+export function extractArkikComentarios(
+  row: unknown[],
+  colMap: ArkikSectionColumnMap | null
+): string {
+  if (!colMap) return '';
+
+  // Column after «Fecha de creación» holds comment text in most exports.
+  if (colMap.fecha_creacion >= 0) {
+    const afterCreacion = cellAt(row, colMap.fecha_creacion + 1);
+    if (afterCreacion) return afterCreacion;
   }
-  return extractArkikMovementNotesLegacy(row);
+
+  // Arkik quirk: «Comentarios» header at N, data often at N+1 (sometimes same column).
+  if (colMap.comentarios >= 0) {
+    const shifted = cellAt(row, colMap.comentarios + 1);
+    if (shifted) return shifted;
+    const direct = cellAt(row, colMap.comentarios);
+    if (direct && colMap.usuario >= 0 && direct === cellAt(row, colMap.usuario)) {
+      return shifted;
+    }
+    return direct;
+  }
+
+  return '';
 }
 
-/** Legacy sectioned layout: scan wide rows but skip usuario-like cells. */
+export function extractArkikCommentAfterDate(row: unknown[], _date1904 = false): string {
+  return extractArkikComentarios(row, detectArkikSectionColumnMap(row));
+}
+
+export function extractArkikMovementNotes(row: unknown[], date1904 = false): string {
+  const map = detectArkikSectionColumnMap(row);
+  if (map) return extractArkikComentarios(row, map);
+  return extractArkikMovementNotesLegacy(row, date1904);
+}
+
 function extractArkikMovementNotesLegacy(row: unknown[], date1904 = false): string {
-  const skip = new Set([0, 1, 5, 6, 9, 14]);
   let best = '';
   for (let i = 0; i < Math.min(row.length, 24); i++) {
-    if (skip.has(i)) continue;
     const v = cellStr(row[i]);
-    if (!looksLikeArkikNoteCell(v, date1904)) continue;
-    if (/^usuario$/i.test(v) || /^dosificador$/i.test(v)) continue;
+    if (!v || v.length < 2) continue;
+    if (arkikExcelValueToDate(v, date1904)) continue;
+    if (/^\d+([.,]\d+)?$/.test(v)) continue;
+    if (canonicalArkikMovementType(v)) continue;
     if (v.length > best.length) best = v;
   }
   return best;
 }
 
-function looksLikeArkikNoteCell(val: string, date1904 = false): boolean {
-  if (!val || val.length < 2) return false;
-  if (arkikExcelValueToDate(val, date1904) != null) return false;
-  if (/^\d+([.,]\d+)?$/.test(val)) return false;
-  if (/^(entrada|consumo|salida|regreso|material)/i.test(val)) return false;
-  if (looksLikeArkikMovementType(val)) return false;
-  return true;
-}
-
-/** @deprecated Prefer extractArkikComentarios with column map. */
-export function extractArkikCommentAfterDate(row: unknown[], date1904 = false): string {
-  return extractArkikMovementNotesLegacy(row, date1904);
-}
-
-/** @deprecated Prefer extractArkikComentarios with column map. */
-export function extractArkikMovementNotes(row: unknown[], date1904 = false): string {
-  return extractArkikMovementNotesLegacy(row, date1904);
-}
-
-/** Movement type: tabular col, else legacy cols that actually contain Entrada/Consumo/… */
 export function resolveArkikMovementType(
   row: unknown[],
-  colMap: ArkikTabularColumnMap | null = null
+  colMap: ArkikSectionColumnMap | null = null
 ): string {
-  if (colMap) {
-    return cellAt(row, colMap.tipo_movimiento);
-  }
+  if (colMap) return cellAt(row, colMap.tipo);
   for (const idx of [1, 5, 0]) {
     const v = cellStr(row[idx]);
-    if (v && looksLikeArkikMovementType(v)) return v;
+    if (canonicalArkikMovementType(v)) return v;
   }
   return '';
 }
 
-/** Row «Unidad de medida» (or similar) → code in col 6 / col 1 (T, kg, …). */
 export function extractArkikUnitFromHeaderRow(row: unknown[]): string {
+  const col2 = cellStr(row[2]);
+  const col4 = cellStr(row[4]);
+  if (col2 === 'Unidad de medida' && col4) return col4;
+
   const col0 = cellStr(row[0]);
   if (!/unidad/i.test(col0)) return '';
   for (const idx of [6, 1, 2, 3, 4, 5, 7, 8]) {
@@ -281,6 +315,7 @@ export function extractArkikUnitFromHeaderRow(row: unknown[]): string {
 type MovementBase = {
   material: string;
   proveedor: string;
+  movement_type: string;
   notas: string;
   cantidad: number;
   unit_arkik: string;
@@ -299,63 +334,52 @@ function pushEntrada(
   }
 }
 
-function parseMovementRow(
+function routeMovement(
   buckets: ArkikParseResult,
-  ctx: {
-    material: string;
-    proveedor: string;
-    unit: string;
-    movementType: string;
-    remisionRaw: string;
-    cantidad: number;
-    fecha: string | null;
-    notas: string;
-  }
+  ctx: MovementBase & { remisionRaw: string }
 ) {
-  const { movementType, remisionRaw, cantidad, fecha, notas, material, proveedor, unit } = ctx;
-  const base: MovementBase = {
-    material,
-    proveedor,
-    notas,
-    cantidad,
-    unit_arkik: unit,
-    fecha,
-  };
+  const { movement_type: movementType, remisionRaw, cantidad } = ctx;
+  const canonical = canonicalArkikMovementType(movementType);
+  if (!canonical) return;
 
-  if (isArkikEntradaMovementType(movementType) && cantidad > 0) {
-    pushEntrada(buckets, base, remisionRaw);
-  } else if (isArkikRegresoProveedorMovementType(movementType)) {
+  buckets.meta.by_tipo[canonical] = (buckets.meta.by_tipo[canonical] ?? 0) + 1;
+  buckets.meta.total_movements += 1;
+
+  if (isArkikEntradaMovementType(movementType)) {
+    if (cantidad > 0) pushEntrada(buckets, ctx, remisionRaw);
+    return;
+  }
+
+  if (isArkikRegresoProveedorMovementType(movementType)) {
     buckets.regresos_proveedor.push({
-      ...base,
-      movement_type: movementType,
+      ...ctx,
       remision: remisionRaw,
     });
-  } else if (
-    isArkikConsumoMovementType(movementType) &&
-    !arkikRowHasRemision(remisionRaw) &&
-    cantidad > 0
-  ) {
-    buckets.consumos_sin_remision.push({
-      ...base,
-      movement_type: movementType,
-    });
+    return;
+  }
+
+  if (isArkikConsumoMovementType(movementType) && cantidad > 0) {
+    buckets.consumos_sin_remision.push(ctx);
   }
 }
 
 /**
- * Parse Arkik "Movimientos de Material" — sectioned blocks and/or tabular tables with header row.
+ * Parse Arkik «Movimientos de Material» — sectioned by material, per-section column map.
+ * Port of arkik_import_comparator.parse_arkik_xls.
  */
 export function parseArkikMaterialMovementsWorkbook(
   workbook: XLSX.WorkBook,
   sheetIndex = 0
 ): ArkikParseResult {
-  const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
   const empty: ArkikParseResult = {
     entradas: [],
     entradas_sin_remision: [],
     consumos_sin_remision: [],
     regresos_proveedor: [],
+    meta: { total_movements: 0, by_tipo: {} },
   };
+
+  const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
   if (!sheet) return empty;
 
   const rows = XLSX.utils.sheet_to_json(sheet, {
@@ -369,81 +393,58 @@ export function parseArkikMaterialMovementsWorkbook(
   let currentMaterial = '';
   let currentProveedor = '';
   let currentUnit = 'kg';
-  let colMap: ArkikTabularColumnMap | null = null;
+  let colMap: ArkikSectionColumnMap | null = null;
 
   const buckets: ArkikParseResult = {
     entradas: [],
     entradas_sin_remision: [],
     consumos_sin_remision: [],
     regresos_proveedor: [],
+    meta: { total_movements: 0, by_tipo: {} },
   };
 
   for (const row of rows) {
     if (!row || row.length === 0) continue;
 
-    const detected = detectArkikTabularColumnMap(row);
-    if (detected) {
-      colMap = detected;
-      continue;
-    }
-
     const col0 = cellStr(row[0]);
     const col6 = cellStr(row[6]);
-
-    const unitFromRow = extractArkikUnitFromHeaderRow(row);
-    if (unitFromRow) {
-      currentUnit = unitFromRow;
-      continue;
-    }
 
     if (col0 === 'Material|Proveedor' && col6) {
       const parts = col6.split('|').map((p) => p.trim());
       currentMaterial = parts[0] ?? '';
       currentProveedor = parts[1] ?? '';
       if (parts[2]) currentUnit = parts[2];
+      colMap = null;
       continue;
     }
 
-    if (colMap) {
-      const movementType = resolveArkikMovementType(row, colMap);
-      if (!looksLikeArkikMovementType(movementType)) continue;
-
-      const fecha = arkikExcelValueToDate(row[colMap.fecha_movimiento], date1904);
-      const cantidad =
-        colMap.cantidad >= 0 ? toFloat(row[colMap.cantidad]) : 0;
-      const remisionRaw = cellAt(row, colMap.remision);
-      const notas = extractArkikComentarios(row, colMap);
-
-      parseMovementRow(buckets, {
-        material: currentMaterial,
-        proveedor: currentProveedor,
-        unit: currentUnit,
-        movementType,
-        remisionRaw,
-        cantidad,
-        fecha,
-        notas,
-      });
+    const col2 = cellStr(row[2]);
+    const col4 = cellStr(row[4]);
+    if (col2 === 'Unidad de medida' && col4) {
+      currentUnit = col4;
       continue;
     }
 
-    const movementType = resolveArkikMovementType(row, null);
-    if (!looksLikeArkikMovementType(movementType)) continue;
+    const detected = detectArkikSectionColumnMap(row);
+    if (detected) {
+      colMap = detected;
+      continue;
+    }
 
-    const remisionRaw = cellStr(row[14]);
-    const cantidad = toFloat(row[9]);
-    const fecha = arkikExcelValueToDate(row[1], date1904);
-    const notas = extractArkikMovementNotesLegacy(row, date1904);
+    if (!colMap) continue;
 
-    parseMovementRow(buckets, {
+    const movementType = cellAt(row, colMap.tipo);
+    if (!canonicalArkikMovementType(movementType)) continue;
+
+    routeMovement(buckets, {
       material: currentMaterial,
       proveedor: currentProveedor,
-      unit: currentUnit,
-      movementType,
-      remisionRaw,
-      cantidad,
-      fecha,
-      notas,
+      movement_type: movementType,
+      notas: extractArkikComentarios(row, colMap),
+      cantidad: colMap.cantidad >= 0 ? toFloat(row[colMap.cantidad]) : 0,
+      unit_arkik: currentUnit,
+      fecha: arkikExcelValueToDate(row[colMap.fecha_mov], date1904),
+      remisionRaw: cellAt(row, colMap.remision),
     });
   }
 
@@ -454,18 +455,9 @@ export async function parseArkikMaterialMovementsFile(file: File): Promise<Arkik
   const name = file.name.toLowerCase();
   const isCsv = name.endsWith('.csv') || file.type.includes('csv');
 
-  let workbook: XLSX.WorkBook;
-  if (isCsv) {
-    const text = await file.text();
-    workbook = XLSX.read(text, { type: 'string', raw: true, cellDates: false });
-  } else {
-    const buf = await file.arrayBuffer();
-    workbook = XLSX.read(buf, {
-      type: 'array',
-      raw: true,
-      cellDates: false,
-    });
-  }
+  const workbook = isCsv
+    ? XLSX.read(await file.text(), { type: 'string', raw: true, cellDates: false })
+    : XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true, cellDates: false });
 
   return parseArkikMaterialMovementsWorkbook(workbook);
 }
