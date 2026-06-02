@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, MoreVertical, Trash2 } from 'lucide-react'
+import { Award, ChevronLeft, MoreVertical, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -10,6 +10,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
@@ -18,6 +19,7 @@ type Props = {
   remisionLabel: string
   statusLabel: string
   statusClassName: string
+  onOpenInforme: () => void
   onDeleteMuestreo: () => void
 }
 
@@ -26,6 +28,7 @@ export default function MuestreoDetailHeader({
   remisionLabel,
   statusLabel,
   statusClassName,
+  onOpenInforme,
   onDeleteMuestreo,
 }: Props) {
   const router = useRouter()
@@ -70,7 +73,12 @@ export default function MuestreoDetailHeader({
               <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuItem onClick={onOpenInforme}>
+              <Award className="h-4 w-4 mr-2" />
+              Informe acreditado…
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-red-600 focus:text-red-600 focus:bg-red-50"
               onClick={onDeleteMuestreo}

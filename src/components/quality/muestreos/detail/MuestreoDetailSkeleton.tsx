@@ -21,15 +21,11 @@ export default function MuestreoDetailSkeleton() {
         <div className="lg:col-span-2">
           <Skeleton className="h-[420px] rounded-lg" />
         </div>
-        <Skeleton className="h-64 rounded-lg" />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Skeleton className="h-52 rounded-lg" />
-        <Skeleton className="h-40 rounded-lg" />
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Skeleton className="h-72 rounded-lg" />
-        <Skeleton className="h-72 rounded-lg" />
+        <div className="space-y-4">
+          <Skeleton className="h-52 rounded-lg" />
+          <Skeleton className="h-40 rounded-lg" />
+          <Skeleton className="h-64 rounded-lg" />
+        </div>
       </div>
       <Skeleton className="h-40 rounded-lg" />
       <Skeleton className="h-64 rounded-lg" />

@@ -24,8 +24,7 @@ import MuestreoMainCard from '@/components/quality/muestreos/detail/MuestreoMain
 import MuestreoEnvironmentalCard from '@/components/quality/muestreos/detail/MuestreoEnvironmentalCard'
 import MuestreoFieldMeasurementsCard from '@/components/quality/muestreos/detail/MuestreoFieldMeasurementsCard'
 import MuestreoSampleSummaryCard from '@/components/quality/muestreos/detail/MuestreoSampleSummaryCard'
-import InformeEmissionPanel from '@/components/quality/informes/InformeEmissionPanel'
-import MuestreoInformeFieldsCard from '@/components/quality/muestreos/detail/MuestreoInformeFieldsCard'
+import MuestreoInformeSheet from '@/components/quality/muestreos/detail/MuestreoInformeSheet'
 import CrossPlantProductionCard, {
   type ProductionRemision,
 } from '@/components/quality/muestreos/detail/CrossPlantProductionCard'
@@ -73,6 +72,7 @@ export default function MuestreoDetailPage() {
   const [emaInstrumentos, setEmaInstrumentos] = useState<MuestreoInstrumentoRow[]>([])
   const [emaInstrumentosLoading, setEmaInstrumentosLoading] = useState(false)
   const [showAddEquipmentDialog, setShowAddEquipmentDialog] = useState(false)
+  const [informeSheetOpen, setInformeSheetOpen] = useState(false)
 
   const applyDetailBundle = useCallback((bundle: MuestreoDetailBundle) => {
     setDetailBundle(bundle)
@@ -267,7 +267,17 @@ export default function MuestreoDetailPage() {
         remisionLabel={remisionLabel}
         statusLabel={pageStatus.label}
         statusClassName={pageStatus.className}
+        onOpenInforme={() => setInformeSheetOpen(true)}
         onDeleteMuestreo={() => setShowDeleteMuestreoDialog(true)}
+      />
+
+      <MuestreoInformeSheet
+        open={informeSheetOpen}
+        onOpenChange={setInformeSheetOpen}
+        muestreo={muestreo}
+        ensayoHasEquipment={ensayoHasEquipment}
+        initialInforme={detailBundle?.informe}
+        onRefresh={() => void fetchMuestreoDetails()}
       />
 
       {muestreo.laboratorio_lote?.id && (
@@ -298,9 +308,8 @@ export default function MuestreoDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="general" className="mt-6 space-y-6">
-          {/* Identificación: datos del muestreo + resumen de muestras (altura similar) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <TabsContent value="general" className="mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
             <div className="lg:col-span-2">
               <MuestreoMainCard
                 muestreo={muestreo}
@@ -314,45 +323,35 @@ export default function MuestreoDetailPage() {
                 onRevenimientoSaved={() => void fetchMuestreoDetails()}
               />
             </div>
-            <MuestreoSampleSummaryCard
-              muestreo={muestreo}
-              cilindros={cilindros.length}
-              vigas={vigas.length}
-              cubos={cubos.length}
-              cilindrosEnsayados={cilindros.filter((c) => c.estado === 'ENSAYADO').length}
-              vigasEnsayadas={vigas.filter((v) => v.estado === 'ENSAYADO').length}
-              cubosEnsayados={cubos.filter((c) => c.estado === 'ENSAYADO').length}
-              firstEnsayoId={firstEnsayoId}
-            />
-          </div>
 
-          {/* Mediciones de campo: ancho compartido en lugar de columna lateral alta */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <MuestreoFieldMeasurementsCard
-              muestreoId={muestreo.id}
-              muestreo={muestreo}
-              canEdit={canEditMuestreoEquipment}
-              onSaved={() => void fetchMuestreoDetails()}
-              initialGrouped={detailBundle?.medicionesCampoGrouped}
-              initialPublishedUncertainty={detailBundle?.publishedUncertainty}
-            />
-            <MuestreoEnvironmentalCard muestreo={muestreo} />
-          </div>
+            <div className="space-y-6">
+              <MuestreoFieldMeasurementsCard
+                muestreoId={muestreo.id}
+                muestreo={muestreo}
+                canEdit={canEditMuestreoEquipment}
+                onSaved={() => void fetchMuestreoDetails()}
+                initialGrouped={detailBundle?.medicionesCampoGrouped}
+                initialPublishedUncertainty={detailBundle?.publishedUncertainty}
+              />
+              <MuestreoEnvironmentalCard muestreo={muestreo} />
+              <MuestreoSampleSummaryCard
+                muestreo={muestreo}
+                cilindros={cilindros.length}
+                vigas={vigas.length}
+                cubos={cubos.length}
+                cilindrosEnsayados={cilindros.filter((c) => c.estado === 'ENSAYADO').length}
+                vigasEnsayadas={vigas.filter((v) => v.estado === 'ENSAYADO').length}
+                cubosEnsayados={cubos.filter((c) => c.estado === 'ENSAYADO').length}
+                firstEnsayoId={firstEnsayoId}
+              />
+            </div>
 
-          {/* Informe acreditado: formulario §2 y emisión en paralelo */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <MuestreoInformeFieldsCard muestreo={muestreo} onSaved={() => void fetchMuestreoDetails()} />
-            <InformeEmissionPanel
-              muestreo={muestreo}
-              ensayoHasEquipment={ensayoHasEquipment}
-              initialInforme={detailBundle?.informe}
-              onRefresh={() => void fetchMuestreoDetails()}
-            />
+            {productionRemision && (
+              <div className="lg:col-span-3">
+                <CrossPlantProductionCard productionRemision={productionRemision} />
+              </div>
+            )}
           </div>
-
-          {productionRemision && (
-            <CrossPlantProductionCard productionRemision={productionRemision} />
-          )}
 
           <MuestreoEquipmentCard
             rows={emaInstrumentos}
