@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Loader2, Pencil, Save, X } from 'lucide-react';
+import { ChevronDown, Loader2, Pencil, Save, X } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import FieldMeasurandInput from '@/components/quality/muestreos/FieldMeasurandInput';
 import {
@@ -74,8 +76,10 @@ export default function MuestreoFieldMeasurementsCard({
   const [uncertaintyByField, setUncertaintyByField] = useState<
     Map<MuestreoFieldMeasurandCodigo, string>
   >(new Map());
+  const [sectionOpen, setSectionOpen] = useState(false);
 
   const declararU = muestreo.declarar_incertidumbre_campo === true;
+  const hasReplicas = grouped.some((g) => g.rows.length > 1);
 
   useEffect(() => {
     if (!declararU) {
@@ -148,7 +152,12 @@ export default function MuestreoFieldMeasurementsCard({
     void load();
   }, [initialGrouped, load, editing, initScalarsFromMuestreo]);
 
+  useEffect(() => {
+    if (hasReplicas) setSectionOpen(true);
+  }, [hasReplicas]);
+
   const startEdit = () => {
+    setSectionOpen(true);
     const expanded = expandedFromGrouped(grouped);
     setExpandedCodigos(expanded);
     setMuExpanded(expanded.has('MU'));
@@ -272,37 +281,69 @@ export default function MuestreoFieldMeasurementsCard({
           };
         }).filter(Boolean) as MuestreoMedicionCampoGrouped[];
 
+  const sectionExpanded = sectionOpen || editing;
+
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-base">Mediciones de campo</CardTitle>
-            <CardDescription>
-              Un valor por prueba; usa «Agregar otra lectura» solo si necesitas réplicas.
-              {declararU ? ' Incertidumbre EMA se muestra cuando está publicada.' : ''}
-            </CardDescription>
+      <Collapsible
+        open={sectionExpanded}
+        onOpenChange={(open) => {
+          if (!editing) setSectionOpen(open);
+        }}
+      >
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <CollapsibleTrigger
+              type="button"
+              className={cn(
+                'flex min-w-0 flex-1 items-start gap-2 rounded-md text-left',
+                'hover:bg-stone-50/80 -m-1 p-1 transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-700/35'
+              )}
+            >
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 shrink-0 text-stone-500 mt-0.5 transition-transform',
+                  sectionExpanded && 'rotate-180'
+                )}
+              />
+              <div className="min-w-0">
+                <CardTitle className="text-base">Mediciones de campo</CardTitle>
+                {sectionExpanded ? (
+                  <CardDescription className="mt-1">
+                    Un valor por prueba; usa «Agregar otra lectura» solo si necesitas réplicas.
+                    {declararU ? ' Incertidumbre EMA se muestra cuando está publicada.' : ''}
+                  </CardDescription>
+                ) : (
+                  <p className="text-xs text-stone-500 mt-1">
+                    {hasReplicas
+                      ? 'Incluye réplicas — expandir para ver detalle.'
+                      : 'Valores en la ficha del muestreo. Expandir solo para réplicas o lecturas adicionales.'}
+                  </p>
+                )}
+              </div>
+            </CollapsibleTrigger>
+            {canEdit && !editing ? (
+              <Button type="button" variant="outline" size="sm" className="h-8 shrink-0" onClick={startEdit}>
+                <Pencil className="h-3.5 w-3.5 mr-1" />
+                Editar
+              </Button>
+            ) : null}
+            {editing ? (
+              <div className="flex shrink-0 gap-1">
+                <Button type="button" size="sm" className="h-8" onClick={() => void save()} disabled={saving}>
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
+                  Guardar
+                </Button>
+                <Button type="button" variant="outline" size="sm" className="h-8" onClick={cancelEdit} disabled={saving}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ) : null}
           </div>
-          {canEdit && !editing ? (
-            <Button type="button" variant="outline" size="sm" className="h-8" onClick={startEdit}>
-              <Pencil className="h-3.5 w-3.5 mr-1" />
-              Editar
-            </Button>
-          ) : null}
-          {editing ? (
-            <div className="flex gap-1">
-              <Button type="button" size="sm" className="h-8" onClick={() => void save()} disabled={saving}>
-                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1" />}
-                Guardar
-              </Button>
-              <Button type="button" variant="outline" size="sm" className="h-8" onClick={cancelEdit} disabled={saving}>
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </CardHeader>
-      <CardContent>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className="pt-0">
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-stone-500">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -396,7 +437,9 @@ export default function MuestreoFieldMeasurementsCard({
             )}
           </div>
         )}
-      </CardContent>
+          </CardContent>
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 }
