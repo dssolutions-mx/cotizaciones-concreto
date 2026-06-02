@@ -120,10 +120,15 @@ export function normalizeRemision(value: unknown): string | null {
   return s.length > 0 ? s : '0';
 }
 
+/** Case-insensitive material code for Arkik ↔ sistema keys. */
+export function normalizeArkikMaterialKey(material: string): string {
+  return material.trim().toUpperCase();
+}
+
 type CompositeKey = string;
 
 function compositeKey(material: string, remision: string | null): CompositeKey {
-  return `${material}\0${remision ?? ''}`;
+  return `${normalizeArkikMaterialKey(material)}\0${remision ?? ''}`;
 }
 
 function parseCompositeKey(key: CompositeKey): { material: string; remision: string } {
@@ -139,7 +144,7 @@ function entryToSystemRecord(entry: ArkikDbEntry): ArkikSystemRecord | null {
   if (remision == null) return null;
   return {
     source: 'entry',
-    material_code: entry.material_code,
+    material_code: normalizeArkikMaterialKey(entry.material_code),
     remision,
     record_number: entry.entry_number,
     fecha: entry.entry_date,
@@ -151,7 +156,7 @@ function entryToSystemRecord(entry: ArkikDbEntry): ArkikSystemRecord | null {
 function adjustmentToSystemRecord(adj: ArkikDbAdjustment): ArkikSystemRecord {
   return {
     source: 'adjustment',
-    material_code: adj.material_code,
+    material_code: normalizeArkikMaterialKey(adj.material_code),
     remision: adj.remision,
     record_number: adj.adjustment_number,
     fecha: adj.adjustment_date,

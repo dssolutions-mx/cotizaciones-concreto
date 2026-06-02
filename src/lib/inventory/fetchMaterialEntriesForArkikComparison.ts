@@ -38,7 +38,7 @@ export async function fetchMaterialEntriesForArkikComparison(
       const supplier = r.supplier as { name?: string } | null;
       rows.push({
         entry_number: String(r.entry_number ?? ''),
-        material_code: material?.material_code ?? '',
+        material_code: String(material?.material_code ?? '').trim(),
         supplier_name: supplier?.name ?? '',
         supplier_invoice: r.supplier_invoice != null ? String(r.supplier_invoice) : null,
         entry_date: String(r.entry_date ?? ''),

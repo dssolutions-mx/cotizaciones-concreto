@@ -1,4 +1,5 @@
 import {
+  normalizeArkikMaterialKey,
   normalizeRemision,
   type ArkikDbAdjustment,
   type ArkikAdjustmentWithoutRemision,
@@ -75,12 +76,12 @@ type RemisionKey = string;
 type ConsumoKey = string;
 
 function remisionKey(material: string, remision: string | null): RemisionKey {
-  return `${material}\0${remision ?? ''}`;
+  return `${normalizeArkikMaterialKey(material)}\0${remision ?? ''}`;
 }
 
 function consumoKey(material: string, fecha: string | null, cantidadKg: number): ConsumoKey {
   const q = (Math.round(cantidadKg * 1000) / 1000).toFixed(3);
-  return `${material}\0${fecha ?? ''}\0${q}`;
+  return `${normalizeArkikMaterialKey(material)}\0${fecha ?? ''}\0${q}`;
 }
 
 function normalizeNotesForMatch(notes: string): string {
@@ -199,7 +200,7 @@ export function compareArkikRegresoProveedor(
       const byNotes = allNegativeForNotes.filter(
         (d) =>
           !matchedDbNumbers.has(d.adjustment_number) &&
-          d.material_code === x.material &&
+          normalizeArkikMaterialKey(d.material_code) === normalizeArkikMaterialKey(x.material) &&
           notesLikelyMatch(x.notas, adjustmentNotesText(d))
       );
       if (byNotes.length > 0) {
@@ -229,7 +230,7 @@ export function compareArkikRegresoProveedor(
       const byNotes = allNegativeForNotes.filter(
         (d) =>
           !matchedDbNumbers.has(d.adjustment_number) &&
-          d.material_code === x.material &&
+          normalizeArkikMaterialKey(d.material_code) === normalizeArkikMaterialKey(x.material) &&
           notesLikelyMatch(x.notas, adjustmentNotesText(d))
       );
       if (byNotes.length > 0) {

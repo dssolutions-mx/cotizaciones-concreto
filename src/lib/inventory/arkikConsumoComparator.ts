@@ -1,6 +1,9 @@
 import type { ArkikExcelConsumoEnriched } from '@/lib/inventory/arkikApplyQuantityConversion';
-import type { ArkikAdjustmentWithoutRemision } from '@/lib/inventory/arkikEntriesComparator';
-import type { ArkikDbAdjustment } from '@/lib/inventory/arkikEntriesComparator';
+import {
+  normalizeArkikMaterialKey,
+  type ArkikAdjustmentWithoutRemision,
+  type ArkikDbAdjustment,
+} from '@/lib/inventory/arkikEntriesComparator';
 
 export type ArkikConsumoMatchedRow = {
   material: string;
@@ -58,7 +61,7 @@ function qtyKey(n: number): string {
 }
 
 function consumoCompositeKey(material: string, fecha: string | null, cantidad: number): ConsumoKey {
-  return `${material}\0${fecha ?? ''}\0${qtyKey(cantidad)}`;
+  return `${normalizeArkikMaterialKey(material)}\0${fecha ?? ''}\0${qtyKey(cantidad)}`;
 }
 
 function parseConsumoKey(key: ConsumoKey): { material: string; fecha: string } {

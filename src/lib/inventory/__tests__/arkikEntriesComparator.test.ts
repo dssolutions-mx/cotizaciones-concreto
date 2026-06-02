@@ -1,12 +1,17 @@
 import assert from 'node:assert';
 import {
   compareArkikEntries,
+  normalizeArkikMaterialKey,
   normalizeRemision,
 } from '@/lib/inventory/arkikEntriesComparator';
 import { extractAdjustmentRemision } from '@/lib/inventory/arkikAdjustmentRemision';
 
 assert.strictEqual(normalizeRemision('085191'), '85191');
+assert.strictEqual(normalizeRemision(''), '0');
+assert.strictEqual(normalizeArkikMaterialKey(' cem001 '), 'CEM001');
 assert.strictEqual(extractAdjustmentRemision('085191', ''), '85191');
+assert.strictEqual(extractAdjustmentRemision('material_entry', 'Remisión 85191'), '85191');
+assert.strictEqual(extractAdjustmentRemision('consumption', ''), null);
 
 const excel = [
   {
@@ -20,18 +25,23 @@ const excel = [
   },
 ];
 
-const partial = compareArkikEntries(excel, [
-  {
-    entry_number: 'ENT-1',
-    material_code: 'CEM001',
-    supplier_name: 'Prov',
-    supplier_invoice: '85191',
-    entry_date: '2026-05-10',
-    quantity_received: 10000,
-  },
-]);
+const dbEntry = {
+  entry_number: 'ENT-1',
+  material_code: 'CEM001',
+  supplier_name: 'Prov',
+  supplier_invoice: '85191',
+  entry_date: '2026-05-10',
+  quantity_received: 10000,
+};
 
+const partial = compareArkikEntries(excel, [dbEntry]);
 assert.strictEqual(partial.matched.length, 1);
 assert.strictEqual(partial.matched[0].cantidad_excel_kg, 10000);
+
+const caseInsensitive = compareArkikEntries(
+  [{ ...excel[0], material: 'cem001' }],
+  [{ ...dbEntry, material_code: 'CEM001' }]
+);
+assert.strictEqual(caseInsensitive.matched.length, 1);
 
 console.log('arkikEntriesComparator.test.ts: ok');

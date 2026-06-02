@@ -67,7 +67,7 @@ export async function fetchMaterialAdjustmentsForArkikComparison(
       if (isSkippableAdjustmentReferenceType(referenceType)) continue;
 
       const material = r.material as { material_code?: string } | null;
-      const materialCode = material?.material_code ?? '';
+      const materialCode = String(material?.material_code ?? '').trim();
       const referenceNotes = r.reference_notes != null ? String(r.reference_notes) : null;
       const remision = extractAdjustmentRemision(referenceType, referenceNotes);
 

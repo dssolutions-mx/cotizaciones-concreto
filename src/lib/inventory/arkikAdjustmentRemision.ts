@@ -11,6 +11,17 @@ export function isSkippableAdjustmentReferenceType(referenceType: string | null 
   return false;
 }
 
+/** Only treat reference_type as remisión when it looks like a folio, not a flow label. */
+function referenceTypeLooksLikeRemision(referenceType: string): boolean {
+  const rt = referenceType.trim();
+  if (!rt) return false;
+  if (/^\d+$/.test(rt)) return true;
+  const labeled = /remisi[oó]n\s*[:#-]?\s*([0-9A-Za-z-]+)/i.exec(rt);
+  if (labeled?.[1]) return true;
+  if (rt.length <= 24 && /^[0-9A-Za-z-]+$/.test(rt) && /\d{3,}/.test(rt)) return true;
+  return false;
+}
+
 /**
  * Best-effort remisión key for a positive material adjustment (reference_type, then reference_notes).
  */
@@ -21,9 +32,10 @@ export function extractAdjustmentRemision(
   if (isSkippableAdjustmentReferenceType(referenceType)) return null;
 
   const rt = referenceType?.trim();
-  if (rt) {
-    const fromType = normalizeRemision(rt);
-    if (fromType) return fromType;
+  if (rt && referenceTypeLooksLikeRemision(rt)) {
+    const labeled = /remisi[oó]n\s*[:#-]?\s*([0-9A-Za-z-]+)/i.exec(rt);
+    if (labeled?.[1]) return normalizeRemision(labeled[1]);
+    return normalizeRemision(rt);
   }
 
   const notes = referenceNotes?.trim() ?? '';

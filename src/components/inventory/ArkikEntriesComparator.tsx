@@ -407,13 +407,23 @@ function RemisionReconciliationPanel({
             </Card>
           ) : null}
 
-          <Tabs defaultValue="only_excel" className="w-full">
+          {rem.meta.excel_entrada_count === 0 ? (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              No se detectaron filas <strong>Entrada</strong> con remisión en el Excel. Verifique el
+              archivo o el rango de fechas.
+            </p>
+          ) : null}
+
+          <Tabs
+            defaultValue={matchedCount > 0 ? 'matched' : 'only_excel'}
+            className="w-full"
+          >
             <TabsList className="flex flex-wrap h-auto gap-1">
+              <TabsTrigger value="matched">Coincidencias ({matchedCount})</TabsTrigger>
               <TabsTrigger value="only_excel">
                 Solo Arkik ({onlyExcelCount})
               </TabsTrigger>
               <TabsTrigger value="only_db">Solo sistema ({onlyDbCount})</TabsTrigger>
-              <TabsTrigger value="matched">Coincidencias ({matchedCount})</TabsTrigger>
               {adjNoRemCount > 0 ? (
                 <TabsTrigger value="adj_no_rem">
                   Ajustes sin remisión ({adjNoRemCount})
@@ -648,11 +658,14 @@ function ConsumoReconciliationPanel({
         </Card>
       ) : null}
 
-      <Tabs defaultValue="only_excel" className="w-full">
+      <Tabs
+        defaultValue={matchedCount > 0 ? 'matched' : 'only_excel'}
+        className="w-full"
+      >
         <TabsList className="flex flex-wrap h-auto gap-1">
+          <TabsTrigger value="matched">Coincidencias ({matchedCount})</TabsTrigger>
           <TabsTrigger value="only_excel">Solo Arkik ({onlyExcelCount})</TabsTrigger>
           <TabsTrigger value="only_db">Solo sistema ({onlyDbCount})</TabsTrigger>
-          <TabsTrigger value="matched">Coincidencias ({matchedCount})</TabsTrigger>
           {negWithRem > 0 ? (
             <TabsTrigger value="neg_rem">Ajustes − con remisión ({negWithRem})</TabsTrigger>
           ) : null}
@@ -838,14 +851,19 @@ function RegresoProveedorPanel({
         </Card>
       ) : null}
 
-      <Tabs defaultValue="review_notes" className="w-full">
+      <Tabs
+        defaultValue={
+          matchedCount > 0 ? 'matched' : reviewCount > 0 ? 'review_notes' : 'only_excel'
+        }
+        className="w-full"
+      >
         <TabsList className="flex flex-wrap h-auto gap-1">
+          <TabsTrigger value="matched">Coincidencias ({matchedCount})</TabsTrigger>
           <TabsTrigger value="review_notes">
             Revisar notas ({reviewCount})
           </TabsTrigger>
           <TabsTrigger value="only_excel">Solo Arkik ({onlyExcelCount})</TabsTrigger>
           <TabsTrigger value="only_db">Solo sistema ({onlyDbCount})</TabsTrigger>
-          <TabsTrigger value="matched">Coincidencias ({matchedCount})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="review_notes" className="mt-4">

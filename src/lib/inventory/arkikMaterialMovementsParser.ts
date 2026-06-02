@@ -73,6 +73,15 @@ export function arkikExcelValueToDate(val: unknown, date1904 = false): string | 
   const s = String(val).trim();
   const iso = /^\d{4}-\d{2}-\d{2}/.exec(s);
   if (iso) return iso[0];
+
+  const dmy = /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/.exec(s);
+  if (dmy) {
+    const d = dmy[1].padStart(2, '0');
+    const m = dmy[2].padStart(2, '0');
+    const y = dmy[3];
+    return `${y}-${m}-${d}`;
+  }
+
   return null;
 }
 
@@ -99,6 +108,20 @@ export function isArkikConsumoMovementType(movementType: string): boolean {
 
 export function isArkikRegresoProveedorMovementType(movementType: string): boolean {
   return /regreso\s*a\s*proveedor/i.test(movementType.trim());
+}
+
+export function isArkikEntradaMovementType(movementType: string): boolean {
+  const t = movementType.trim().toLowerCase();
+  return t === 'entrada' || t.startsWith('entrada ');
+}
+
+/** Movement type is often in col 5; fallback to col 0 when col 5 is blank. */
+export function resolveArkikMovementType(row: unknown[]): string {
+  const col5 = cellStr(row[5]);
+  if (col5) return col5;
+  const col0 = cellStr(row[0]);
+  if (col0 && !/material\|proveedor/i.test(col0) && !/unidad/i.test(col0)) return col0;
+  return '';
 }
 
 /** Texto libre en columnas de comentarios/notas (excluye columnas fijas del layout). */
@@ -160,8 +183,8 @@ export function parseArkikMaterialMovementsWorkbook(
   for (const row of rows) {
     if (!row || row.length === 0) continue;
     const col0 = cellStr(row[0]);
-    const col5 = cellStr(row[5]);
     const col6 = cellStr(row[6]);
+    const movementType = resolveArkikMovementType(row);
     const remisionRaw = cellStr(row[14]);
     const cantidad = toFloat(row[9]);
     const fecha = arkikExcelValueToDate(row[1], date1904);
@@ -179,7 +202,7 @@ export function parseArkikMaterialMovementsWorkbook(
       if (parts[2]) currentUnit = parts[2];
     }
 
-    if (col5 === 'Entrada' && arkikRowHasRemision(remisionRaw)) {
+    if (isArkikEntradaMovementType(movementType) && arkikRowHasRemision(remisionRaw)) {
       entradas.push({
         material: currentMaterial,
         proveedor: currentProveedor,
@@ -188,22 +211,26 @@ export function parseArkikMaterialMovementsWorkbook(
         unit_arkik: currentUnit,
         fecha,
       });
-    } else if (isArkikRegresoProveedorMovementType(col5)) {
+    } else if (isArkikRegresoProveedorMovementType(movementType)) {
       regresos_proveedor.push({
         material: currentMaterial,
         proveedor: currentProveedor,
-        movement_type: col5,
+        movement_type: movementType,
         remision: remisionRaw,
         cantidad,
         unit_arkik: currentUnit,
         fecha,
         notas: extractArkikMovementNotes(row),
       });
-    } else if (isArkikConsumoMovementType(col5) && !arkikRowHasRemision(remisionRaw)) {
+    } else if (
+      isArkikConsumoMovementType(movementType) &&
+      !arkikRowHasRemision(remisionRaw) &&
+      cantidad > 0
+    ) {
       consumos_sin_remision.push({
         material: currentMaterial,
         proveedor: currentProveedor,
-        movement_type: col5,
+        movement_type: movementType,
         cantidad,
         unit_arkik: currentUnit,
         fecha,
