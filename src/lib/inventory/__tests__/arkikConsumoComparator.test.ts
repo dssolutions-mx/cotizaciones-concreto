@@ -7,6 +7,7 @@ const matched = compareArkikConsumosSinRemision(
       material: 'ARE001',
       proveedor: 'P',
       movement_type: 'Consumo',
+      notas: '',
       cantidad: 0.5,
       unit_arkik: 'T',
       cantidad_kg: 500,

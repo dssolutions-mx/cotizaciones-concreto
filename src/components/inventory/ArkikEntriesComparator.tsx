@@ -195,10 +195,9 @@ export default function ArkikEntriesComparator() {
           Conciliar movimientos Arkik
         </h1>
         <p className="text-sm text-stone-600 mt-1 max-w-2xl">
-          Cargue <strong>Movimientos de Material</strong> de Arkik. Se comparan dos vías:{' '}
-          <strong>Entradas con remisión</strong> (entradas y ajustes positivos) y{' '}
-          <strong>consumos sin remisión</strong>, y <strong>regreso a proveedor</strong> (ajustes
-          negativos, con énfasis en notas). Las cantidades Arkik usan la unidad del bloque (p. ej.{' '}
+          Cargue <strong>Movimientos de Material</strong> de Arkik. Incluye entradas{' '}
+          <strong>con y sin remisión</strong> (el comentario junto a la fecha se muestra en tablas),
+          consumos, y regreso a proveedor. Las cantidades Arkik usan la unidad del bloque (p. ej.{' '}
           <strong>T</strong> → kg) antes de comparar.
         </p>
         <p className="text-xs text-stone-500 mt-1">
@@ -328,6 +327,11 @@ function RemisionReconciliationPanel({
   const onlyExcelCount = rem.only_excel.length
   const onlyDbCount = rem.only_db.length
   const adjNoRemCount = rem.adjustments_without_remision.length
+  const sinRem = rem.entradas_sin_remision
+  const sinRemMatched = sinRem.matched.length
+  const sinRemExcelOnly = sinRem.only_excel.length
+  const sinRemDbOnly = sinRem.only_db.length
+  const sinRemTotal = sinRemMatched + sinRemExcelOnly + sinRemDbOnly
 
   return (
     <>
@@ -337,8 +341,9 @@ function RemisionReconciliationPanel({
             <div className="text-sm text-stone-600">Coincidencias</div>
             <div className="text-2xl font-semibold text-emerald-900 tabular-nums">{matchedCount}</div>
             <div className="text-xs text-stone-500 mt-1">
-              Excel entradas: {rem.meta.excel_entrada_count} · DB entradas:{' '}
-              {rem.meta.db_entry_count} · Ajustes +: {rem.meta.db_adjustment_count}
+              Con remisión: {rem.meta.excel_entrada_count} Arkik / {rem.meta.db_entry_count} sistema
+              · Sin remisión: {rem.meta.excel_entrada_sin_remision_count} Arkik /{' '}
+              {rem.meta.db_entry_sin_remision_count} sistema
             </div>
           </CardContent>
         </Card>
@@ -407,10 +412,11 @@ function RemisionReconciliationPanel({
             </Card>
           ) : null}
 
-          {rem.meta.excel_entrada_count === 0 ? (
+          {rem.meta.excel_entrada_count === 0 &&
+          rem.meta.excel_entrada_sin_remision_count === 0 ? (
             <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              No se detectaron filas <strong>Entrada</strong> con remisión en el Excel. Verifique el
-              archivo o el rango de fechas.
+              No se detectaron filas <strong>Entrada</strong> en el Excel. Verifique el archivo o el
+              rango de fechas.
             </p>
           ) : null}
 
@@ -424,6 +430,11 @@ function RemisionReconciliationPanel({
                 Solo Arkik ({onlyExcelCount})
               </TabsTrigger>
               <TabsTrigger value="only_db">Solo sistema ({onlyDbCount})</TabsTrigger>
+              {sinRemTotal > 0 ? (
+                <TabsTrigger value="entrada_sin_rem">
+                  Entradas sin remisión ({sinRemTotal})
+                </TabsTrigger>
+              ) : null}
               {adjNoRemCount > 0 ? (
                 <TabsTrigger value="adj_no_rem">
                   Ajustes sin remisión ({adjNoRemCount})
@@ -440,6 +451,7 @@ function RemisionReconciliationPanel({
                     r.material,
                     r.remision,
                     r.fecha ?? '—',
+                    r.notas || '—',
                     formatArkikQtyWithKg(r.cantidad, r.unit_arkik, r.cantidad_kg),
                     r.proveedor,
                     '—',
@@ -449,6 +461,7 @@ function RemisionReconciliationPanel({
                   'Material',
                   'Remisión',
                   'Fecha',
+                  'Comentario Arkik',
                   'Cantidad Arkik',
                   'Proveedor (Arkik)',
                   'Entrada',
@@ -513,6 +526,7 @@ function RemisionReconciliationPanel({
                   cells: [
                     r.material,
                     r.remision,
+                    r.notas_excel || '—',
                     sourceLabel(r.system_source),
                     r.fecha_excel ?? '—',
                     formatArkikQtyWithKg(r.cantidad_excel, r.unit_arkik, r.cantidad_excel_kg),
@@ -524,6 +538,7 @@ function RemisionReconciliationPanel({
                 headers={[
                   'Material',
                   'Remisión',
+                  'Comentario Arkik',
                   'En sistema',
                   'Fecha Arkik',
                   'Cant. Arkik (→ kg)',
@@ -533,6 +548,91 @@ function RemisionReconciliationPanel({
                 ]}
               />
             </TabsContent>
+
+            {sinRemTotal > 0 ? (
+              <TabsContent value="entrada_sin_rem" className="mt-4">
+                <p className="text-sm text-stone-600 mb-3">
+                  Entradas Arkik <strong>sin remisión</strong> en columna 14, frente a entradas de
+                  sistema sin factura/remisión. Se intenta empatar por material + fecha + cantidad
+                  (kg). Revise el <strong>comentario</strong> junto a la fecha en Arkik.
+                </p>
+                <Tabs defaultValue={sinRemMatched > 0 ? 'sr_matched' : 'sr_excel'} className="w-full">
+                  <TabsList className="flex flex-wrap h-auto gap-1 mb-3">
+                    <TabsTrigger value="sr_matched">Coincidencias ({sinRemMatched})</TabsTrigger>
+                    <TabsTrigger value="sr_excel">Solo Arkik ({sinRemExcelOnly})</TabsTrigger>
+                    <TabsTrigger value="sr_db">Solo sistema ({sinRemDbOnly})</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="sr_matched">
+                    <DetailTable
+                      empty="Sin coincidencias por fecha y cantidad."
+                      rows={sinRem.matched.map((r, i) => ({
+                        key: `${r.entry_number}-${i}`,
+                        cells: [
+                          r.material,
+                          r.fecha_excel ?? '—',
+                          r.notas_excel || '—',
+                          formatArkikQtyWithKg(r.cantidad_excel, r.unit_arkik, r.cantidad_excel_kg),
+                          r.fecha_db,
+                          `${fmtQty(r.cantidad_db)} kg`,
+                          (r.notes_db ?? '').slice(0, 80) || '—',
+                          r.entry_number,
+                        ],
+                      }))}
+                      headers={[
+                        'Material',
+                        'Fecha Arkik',
+                        'Comentario Arkik',
+                        'Cant. Arkik',
+                        'Fecha sistema',
+                        'Cant. sistema',
+                        'Notas entrada',
+                        'Folio',
+                      ]}
+                    />
+                  </TabsContent>
+                  <TabsContent value="sr_excel">
+                    <DetailTable
+                      empty=""
+                      rows={sinRem.only_excel.map((r) => ({
+                        key: `${r.material}-${r.fecha}-${r.cantidad_kg}`,
+                        cells: [
+                          r.material,
+                          r.fecha ?? '—',
+                          r.notas || '—',
+                          formatArkikQtyWithKg(r.cantidad, r.unit_arkik, r.cantidad_kg),
+                          r.proveedor,
+                        ],
+                      }))}
+                      headers={['Material', 'Fecha', 'Comentario Arkik', 'Cantidad', 'Proveedor']}
+                    />
+                  </TabsContent>
+                  <TabsContent value="sr_db">
+                    <DetailTable
+                      empty=""
+                      rows={sinRem.only_db.map((r) => ({
+                        key: r.entry_number,
+                        cells: [
+                          r.material,
+                          r.fecha,
+                          (r.notes ?? '').slice(0, 80) || '—',
+                          `${fmtQty(r.cantidad)} kg`,
+                          r.supplier_name,
+                          r.entry_number,
+                        ],
+                      }))}
+                      headers={[
+                        'Material',
+                        'Fecha',
+                        'Notas entrada',
+                        'Cantidad',
+                        'Proveedor',
+                        'Folio',
+                      ]}
+                    />
+                  </TabsContent>
+                </Tabs>
+              </TabsContent>
+            ) : null}
 
             {adjNoRemCount > 0 ? (
               <TabsContent value="adj_no_rem" className="mt-4">
@@ -679,12 +779,13 @@ function ConsumoReconciliationPanel({
               cells: [
                 r.material,
                 r.fecha ?? '—',
+                r.notas || '—',
                 r.movement_type,
                 formatArkikQtyWithKg(r.cantidad, r.unit_arkik, r.cantidad_kg),
                 r.proveedor,
               ],
             }))}
-            headers={['Material', 'Fecha', 'Tipo Arkik', 'Cantidad Arkik', 'Proveedor']}
+            headers={['Material', 'Fecha', 'Comentario Arkik', 'Tipo Arkik', 'Cantidad Arkik', 'Proveedor']}
           />
           {onlyExcelCount > 0 ? (
             <p className="text-xs text-stone-500 mt-2">
@@ -722,6 +823,7 @@ function ConsumoReconciliationPanel({
               cells: [
                 r.material,
                 r.fecha_excel ?? r.fecha_db,
+                r.notas_excel || '—',
                 r.movement_type_excel,
                 formatArkikQtyWithKg(r.cantidad_excel, r.unit_arkik, r.cantidad_excel_kg),
                 adjustmentTypeLabelEs(r.adjustment_type),
@@ -732,6 +834,7 @@ function ConsumoReconciliationPanel({
             headers={[
               'Material',
               'Fecha',
+              'Comentario Arkik',
               'Tipo Arkik',
               'Cant. Arkik (→ kg)',
               'Tipo ajuste',
@@ -1001,7 +1104,8 @@ function DetailTable({
                   key={i}
                   className={cn(
                     i <= 1 ? 'font-mono text-sm' : '',
-                    i >= 3 && i <= 5 ? 'tabular-nums text-right' : ''
+                    i >= 3 && i <= 5 ? 'tabular-nums text-right' : '',
+                    cell.length > 24 ? 'max-w-[220px] text-xs whitespace-normal' : ''
                   )}
                 >
                   {cell}

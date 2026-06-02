@@ -8,6 +8,7 @@ import {
 export type ArkikConsumoMatchedRow = {
   material: string;
   fecha: string | null;
+  notas_excel: string;
   cantidad_excel: number;
   unit_arkik: string;
   cantidad_excel_kg: number;
@@ -23,6 +24,7 @@ export type ArkikConsumoMatchedRow = {
 export type ArkikConsumoOnlyExcelRow = {
   material: string;
   fecha: string | null;
+  notas: string;
   cantidad: number;
   unit_arkik: string;
   cantidad_kg: number;
@@ -111,6 +113,7 @@ export function compareArkikConsumosSinRemision(
           matched.push({
             material,
             fecha: fecha || x.fecha,
+            notas_excel: x.notas,
             cantidad_excel: x.cantidad,
             unit_arkik: x.unit_arkik,
             cantidad_excel_kg: x.cantidad_kg,
@@ -129,6 +132,7 @@ export function compareArkikConsumosSinRemision(
         only_excel.push({
           material,
           fecha: x.fecha,
+          notas: x.notas,
           cantidad: x.cantidad,
           unit_arkik: x.unit_arkik,
           cantidad_kg: x.cantidad_kg,

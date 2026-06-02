@@ -136,6 +136,7 @@ export async function POST(request: NextRequest) {
     const enriched = applyArkikQuantityConversion(parsed, uomMap);
     const conRemision = compareArkikEntries(
       enriched.entradas,
+      enriched.entradas_sin_remision,
       dbEntries,
       adjustmentsResult.positive_with_remision,
       adjustmentsResult.positive_without_remision

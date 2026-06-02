@@ -19,7 +19,7 @@ export async function fetchMaterialEntriesForArkikComparison(
     const { data, error } = await supabase
       .from('material_entries')
       .select(
-        'entry_number, entry_date, quantity_received, supplier_invoice, material:materials!material_id(material_code), supplier:suppliers!supplier_id(name)'
+        'entry_number, entry_date, quantity_received, supplier_invoice, notes, material:materials!material_id(material_code), supplier:suppliers!supplier_id(name)'
       )
       .eq('plant_id', plantId)
       .gte('entry_date', dateFrom)
@@ -41,6 +41,7 @@ export async function fetchMaterialEntriesForArkikComparison(
         material_code: String(material?.material_code ?? '').trim(),
         supplier_name: supplier?.name ?? '',
         supplier_invoice: r.supplier_invoice != null ? String(r.supplier_invoice) : null,
+        notes: r.notes != null ? String(r.notes).trim() : null,
         entry_date: String(r.entry_date ?? ''),
         quantity_received: Number(r.quantity_received) || 0,
       });

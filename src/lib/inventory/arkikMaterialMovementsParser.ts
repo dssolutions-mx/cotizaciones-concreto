@@ -1,13 +1,25 @@
 import * as XLSX from 'xlsx';
 
-/** One "Entrada" row from Arkik Movimientos de Material export. */
+/** One "Entrada" row from Arkik Movimientos de Material export (con remisión). */
 export type ArkikExcelEntry = {
   material: string;
   proveedor: string;
   remision: string;
+  /** Comentario en columna(s) junto a la fecha (típ. col 2). */
+  notas: string;
   /** Cantidad en la unidad del bloque Arkik (p. ej. toneladas si unidad = T). */
   cantidad: number;
   /** Unidad del bloque (fila «Unidad de medida» o tercer segmento Material|Proveedor|UoM). */
+  unit_arkik: string;
+  fecha: string | null;
+};
+
+/** Entrada Arkik sin remisión en col. 14 — revisión manual / match por fecha+cantidad. */
+export type ArkikExcelEntradaSinRemision = {
+  material: string;
+  proveedor: string;
+  notas: string;
+  cantidad: number;
   unit_arkik: string;
   fecha: string | null;
 };
@@ -17,6 +29,7 @@ export type ArkikExcelConsumo = {
   material: string;
   proveedor: string;
   movement_type: string;
+  notas: string;
   cantidad: number;
   unit_arkik: string;
   fecha: string | null;
@@ -36,6 +49,7 @@ export type ArkikExcelRegresoProveedor = {
 
 export type ArkikParseResult = {
   entradas: ArkikExcelEntry[];
+  entradas_sin_remision: ArkikExcelEntradaSinRemision[];
   consumos_sin_remision: ArkikExcelConsumo[];
   regresos_proveedor: ArkikExcelRegresoProveedor[];
 };
@@ -124,16 +138,36 @@ export function resolveArkikMovementType(row: unknown[]): string {
   return '';
 }
 
+function looksLikeArkikNoteCell(val: string, date1904 = false): boolean {
+  if (!val || val.length < 2) return false;
+  if (arkikExcelValueToDate(val, date1904) != null) return false;
+  if (/^\d+([.,]\d+)?$/.test(val)) return false;
+  if (/^(entrada|consumo|salida|regreso|material)/i.test(val)) return false;
+  return true;
+}
+
+/** Comentario/nota en columnas inmediatas después de la fecha (col 1 → cols 2–4). */
+export function extractArkikCommentAfterDate(row: unknown[], date1904 = false): string {
+  const parts: string[] = [];
+  for (const idx of [2, 3, 4]) {
+    const v = cellStr(row[idx]);
+    if (!looksLikeArkikNoteCell(v, date1904)) continue;
+    parts.push(v);
+  }
+  return parts.join(' · ').trim();
+}
+
 /** Texto libre en columnas de comentarios/notas (excluye columnas fijas del layout). */
-export function extractArkikMovementNotes(row: unknown[]): string {
-  const skip = new Set([0, 1, 5, 6, 9, 14]);
+export function extractArkikMovementNotes(row: unknown[], date1904 = false): string {
+  const afterDate = extractArkikCommentAfterDate(row, date1904);
+  if (afterDate) return afterDate;
+
+  const skip = new Set([0, 1, 2, 3, 4, 5, 6, 9, 14]);
   let best = '';
   for (let i = 0; i < Math.min(row.length, 24); i++) {
     if (skip.has(i)) continue;
     const v = cellStr(row[i]);
-    if (!v || v.length < 3) continue;
-    if (/^(entrada|consumo|salida|regreso|material)/i.test(v)) continue;
-    if (/^\d+([.,]\d+)?$/.test(v)) continue;
+    if (!looksLikeArkikNoteCell(v, date1904)) continue;
     if (v.length > best.length) best = v;
   }
   return best;
@@ -162,7 +196,7 @@ export function parseArkikMaterialMovementsWorkbook(
 ): ArkikParseResult {
   const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
   if (!sheet) {
-    return { entradas: [], consumos_sin_remision: [], regresos_proveedor: [] };
+    return { entradas: [], entradas_sin_remision: [], consumos_sin_remision: [], regresos_proveedor: [] };
   }
 
   const rows = XLSX.utils.sheet_to_json(sheet, {
@@ -177,6 +211,7 @@ export function parseArkikMaterialMovementsWorkbook(
   let currentProveedor = '';
   let currentUnit = 'kg';
   const entradas: ArkikExcelEntry[] = [];
+  const entradas_sin_remision: ArkikExcelEntradaSinRemision[] = [];
   const consumos_sin_remision: ArkikExcelConsumo[] = [];
   const regresos_proveedor: ArkikExcelRegresoProveedor[] = [];
 
@@ -202,15 +237,22 @@ export function parseArkikMaterialMovementsWorkbook(
       if (parts[2]) currentUnit = parts[2];
     }
 
-    if (isArkikEntradaMovementType(movementType) && arkikRowHasRemision(remisionRaw)) {
-      entradas.push({
+    const notas = extractArkikMovementNotes(row, date1904);
+
+    if (isArkikEntradaMovementType(movementType) && cantidad > 0) {
+      const base = {
         material: currentMaterial,
         proveedor: currentProveedor,
-        remision: remisionRaw,
+        notas,
         cantidad,
         unit_arkik: currentUnit,
         fecha,
-      });
+      };
+      if (arkikRowHasRemision(remisionRaw)) {
+        entradas.push({ ...base, remision: remisionRaw });
+      } else {
+        entradas_sin_remision.push(base);
+      }
     } else if (isArkikRegresoProveedorMovementType(movementType)) {
       regresos_proveedor.push({
         material: currentMaterial,
@@ -220,7 +262,7 @@ export function parseArkikMaterialMovementsWorkbook(
         cantidad,
         unit_arkik: currentUnit,
         fecha,
-        notas: extractArkikMovementNotes(row),
+        notas,
       });
     } else if (
       isArkikConsumoMovementType(movementType) &&
@@ -231,6 +273,7 @@ export function parseArkikMaterialMovementsWorkbook(
         material: currentMaterial,
         proveedor: currentProveedor,
         movement_type: movementType,
+        notas,
         cantidad,
         unit_arkik: currentUnit,
         fecha,
@@ -238,7 +281,7 @@ export function parseArkikMaterialMovementsWorkbook(
     }
   }
 
-  return { entradas, consumos_sin_remision, regresos_proveedor };
+  return { entradas, entradas_sin_remision, consumos_sin_remision, regresos_proveedor };
 }
 
 export async function parseArkikMaterialMovementsFile(file: File): Promise<ArkikParseResult> {
