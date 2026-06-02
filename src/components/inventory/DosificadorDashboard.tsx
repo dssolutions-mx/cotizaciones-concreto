@@ -581,7 +581,7 @@ export default function DosificadorDashboard() {
               { href: '/production-control/inventario', label: 'Inventario y conciliación', Icon: BarChart3 },
               {
                 href: '/production-control/arkik-entries-comparison',
-                label: 'Conciliar entradas Arkik',
+                label: 'Conciliar movimientos Arkik',
                 Icon: Upload,
               },
               { href: '/production-control/daily-log', label: 'Bitácora diaria', Icon: Calendar },

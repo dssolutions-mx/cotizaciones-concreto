@@ -1,4 +1,8 @@
-import type { ArkikExcelEntry } from '@/lib/inventory/arkikMaterialMovementsParser';
+import type { ArkikExcelEntryEnriched } from '@/lib/inventory/arkikApplyQuantityConversion';
+import type { ArkikConsumoComparisonResult } from '@/lib/inventory/arkikConsumoComparator';
+import type { ArkikRegresoComparisonResult } from '@/lib/inventory/arkikRegresoProveedorComparator';
+
+export type ArkikSystemSource = 'entry' | 'adjustment';
 
 export type ArkikDbEntry = {
   entry_number: string;
@@ -9,16 +13,44 @@ export type ArkikDbEntry = {
   quantity_received: number;
 };
 
+export type ArkikDbAdjustment = {
+  adjustment_number: string;
+  material_code: string;
+  remision: string;
+  adjustment_date: string;
+  quantity_adjusted: number;
+  adjustment_type: string;
+  reference_type: string | null;
+  reference_notes: string | null;
+};
+
+export type ArkikAdjustmentWithoutRemision = Omit<ArkikDbAdjustment, 'remision'>;
+
+type ArkikSystemRecord = {
+  source: ArkikSystemSource;
+  material_code: string;
+  remision: string;
+  record_number: string;
+  fecha: string;
+  cantidad: number;
+  detail: string;
+  adjustment_type?: string;
+};
+
 export type ArkikMatchedRow = {
   material: string;
   remision: string;
   fecha_excel: string | null;
   cantidad_excel: number;
+  unit_arkik: string;
+  cantidad_excel_kg: number;
   proveedor_excel: string;
-  entry_number: string;
+  system_source: ArkikSystemSource;
+  record_number: string;
   fecha_db: string;
   cantidad_db: number;
-  supplier_db: string;
+  detail_db: string;
+  adjustment_type?: string;
 };
 
 export type ArkikOnlyExcelRow = {
@@ -26,16 +58,20 @@ export type ArkikOnlyExcelRow = {
   remision: string;
   fecha: string | null;
   cantidad: number;
+  unit_arkik: string;
+  cantidad_kg: number;
   proveedor: string;
 };
 
 export type ArkikOnlyDbRow = {
   material: string;
   remision: string;
-  entry_number: string;
+  system_source: ArkikSystemSource;
+  record_number: string;
   fecha: string;
   cantidad: number;
-  supplier: string;
+  detail: string;
+  adjustment_type?: string;
 };
 
 export type ArkikMaterialSummary = {
@@ -44,16 +80,38 @@ export type ArkikMaterialSummary = {
   only_db: number;
 };
 
+/** Match by material + remisión (entradas y ajustes positivos). */
 export type ArkikComparisonResult = {
   matched: ArkikMatchedRow[];
   only_excel: ArkikOnlyExcelRow[];
   only_db: ArkikOnlyDbRow[];
+  adjustments_without_remision: ArkikAdjustmentWithoutRemision[];
   summary: Record<string, ArkikMaterialSummary>;
   meta: {
     excel_entrada_count: number;
     db_entry_count: number;
+    db_adjustment_count: number;
+    db_adjustment_without_remision_count: number;
   };
 };
+
+export type ArkikReconciliationResult = {
+  con_remision: ArkikComparisonResult;
+  consumo_sin_remision: ArkikConsumoComparisonResult;
+  regreso_proveedor: ArkikRegresoComparisonResult;
+};
+
+export function buildArkikReconciliationResult(
+  conRemision: ArkikComparisonResult,
+  consumoSinRemision: ArkikConsumoComparisonResult,
+  regresoProveedor: ArkikRegresoComparisonResult
+): ArkikReconciliationResult {
+  return {
+    con_remision: conRemision,
+    consumo_sin_remision: consumoSinRemision,
+    regreso_proveedor: regresoProveedor,
+  };
+}
 
 /** Strip leading zeros so "085191" and "85191" match. */
 export function normalizeRemision(value: unknown): string | null {
@@ -76,11 +134,57 @@ function parseCompositeKey(key: CompositeKey): { material: string; remision: str
   };
 }
 
+function entryToSystemRecord(entry: ArkikDbEntry): ArkikSystemRecord | null {
+  const remision = normalizeRemision(entry.supplier_invoice);
+  if (remision == null) return null;
+  return {
+    source: 'entry',
+    material_code: entry.material_code,
+    remision,
+    record_number: entry.entry_number,
+    fecha: entry.entry_date,
+    cantidad: entry.quantity_received,
+    detail: entry.supplier_name,
+  };
+}
+
+function adjustmentToSystemRecord(adj: ArkikDbAdjustment): ArkikSystemRecord {
+  return {
+    source: 'adjustment',
+    material_code: adj.material_code,
+    remision: adj.remision,
+    record_number: adj.adjustment_number,
+    fecha: adj.adjustment_date,
+    cantidad: adj.quantity_adjusted,
+    detail: adj.reference_notes?.trim() || adj.reference_type || adj.adjustment_type,
+    adjustment_type: adj.adjustment_type,
+  };
+}
+
+function systemRecordsFromDb(
+  dbEntries: ArkikDbEntry[],
+  dbAdjustments: ArkikDbAdjustment[]
+): ArkikSystemRecord[] {
+  const records: ArkikSystemRecord[] = [];
+  for (const e of dbEntries) {
+    const row = entryToSystemRecord(e);
+    if (row) records.push(row);
+  }
+  for (const a of dbAdjustments) {
+    records.push(adjustmentToSystemRecord(a));
+  }
+  return records;
+}
+
 export function compareArkikEntries(
-  excelEntries: ArkikExcelEntry[],
-  dbEntries: ArkikDbEntry[]
+  excelEntries: ArkikExcelEntryEnriched[],
+  dbEntries: ArkikDbEntry[],
+  dbAdjustments: ArkikDbAdjustment[] = [],
+  adjustmentsWithoutRemision: ArkikAdjustmentWithoutRemision[] = []
 ): ArkikComparisonResult {
-  const xlsIndex = new Map<CompositeKey, ArkikExcelEntry[]>();
+  const systemRecords = systemRecordsFromDb(dbEntries, dbAdjustments);
+
+  const xlsIndex = new Map<CompositeKey, ArkikExcelEntryEnriched[]>();
   for (const entry of excelEntries) {
     const key = compositeKey(entry.material, normalizeRemision(entry.remision));
     const list = xlsIndex.get(key) ?? [];
@@ -88,13 +192,11 @@ export function compareArkikEntries(
     xlsIndex.set(key, list);
   }
 
-  const dbIndex = new Map<CompositeKey, ArkikDbEntry[]>();
-  for (const entry of dbEntries) {
-    const norm = normalizeRemision(entry.supplier_invoice);
-    if (norm == null) continue;
-    const key = compositeKey(entry.material_code, norm);
+  const dbIndex = new Map<CompositeKey, ArkikSystemRecord[]>();
+  for (const record of systemRecords) {
+    const key = compositeKey(record.material_code, record.remision);
     const list = dbIndex.get(key) ?? [];
-    list.push(entry);
+    list.push(record);
     dbIndex.set(key, list);
   }
 
@@ -117,11 +219,15 @@ export function compareArkikEntries(
             remision,
             fecha_excel: x.fecha,
             cantidad_excel: x.cantidad,
+            unit_arkik: x.unit_arkik,
+            cantidad_excel_kg: x.cantidad_kg,
             proveedor_excel: x.proveedor,
-            entry_number: d.entry_number,
-            fecha_db: d.entry_date,
-            cantidad_db: d.quantity_received,
-            supplier_db: d.supplier_name,
+            system_source: d.source,
+            record_number: d.record_number,
+            fecha_db: d.fecha,
+            cantidad_db: d.cantidad,
+            detail_db: d.detail,
+            adjustment_type: d.adjustment_type,
           });
         }
       }
@@ -132,6 +238,8 @@ export function compareArkikEntries(
           remision,
           fecha: x.fecha,
           cantidad: x.cantidad,
+          unit_arkik: x.unit_arkik,
+          cantidad_kg: x.cantidad_kg,
           proveedor: x.proveedor,
         });
       }
@@ -140,10 +248,12 @@ export function compareArkikEntries(
         only_db.push({
           material,
           remision,
-          entry_number: d.entry_number,
-          fecha: d.entry_date,
-          cantidad: d.quantity_received,
-          supplier: d.supplier_name,
+          system_source: d.source,
+          record_number: d.record_number,
+          fecha: d.fecha,
+          cantidad: d.cantidad,
+          detail: d.detail,
+          adjustment_type: d.adjustment_type,
         });
       }
     }
@@ -162,10 +272,13 @@ export function compareArkikEntries(
     matched,
     only_excel,
     only_db,
+    adjustments_without_remision: adjustmentsWithoutRemision,
     summary,
     meta: {
       excel_entrada_count: excelEntries.length,
       db_entry_count: dbEntries.length,
+      db_adjustment_count: dbAdjustments.length,
+      db_adjustment_without_remision_count: adjustmentsWithoutRemision.length,
     },
   };
 }

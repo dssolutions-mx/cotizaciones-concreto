@@ -6,8 +6,16 @@ import {
   canAccessAllInventoryPlants,
 } from '@/lib/auth/inventoryRoles';
 import { parseArkikMaterialMovementsBuffer } from '@/lib/inventory/arkikMaterialMovementsParser';
-import { compareArkikEntries } from '@/lib/inventory/arkikEntriesComparator';
+import {
+  compareArkikEntries,
+  buildArkikReconciliationResult,
+} from '@/lib/inventory/arkikEntriesComparator';
+import { compareArkikConsumosSinRemision } from '@/lib/inventory/arkikConsumoComparator';
+import { compareArkikRegresoProveedor } from '@/lib/inventory/arkikRegresoProveedorComparator';
 import { fetchMaterialEntriesForArkikComparison } from '@/lib/inventory/fetchMaterialEntriesForArkikComparison';
+import { fetchMaterialAdjustmentsForArkikComparison } from '@/lib/inventory/fetchMaterialAdjustmentsForArkikComparison';
+import { fetchMaterialUomHintsByCode } from '@/lib/inventory/fetchMaterialUomHintsForArkik';
+import { applyArkikQuantityConversion } from '@/lib/inventory/arkikApplyQuantityConversion';
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MAX_RANGE_DAYS = 366;
@@ -119,14 +127,34 @@ export async function POST(request: NextRequest) {
     }
 
     const buffer = await file.arrayBuffer();
-    const excelEntries = parseArkikMaterialMovementsBuffer(buffer, file.name);
-    const dbEntries = await fetchMaterialEntriesForArkikComparison(
-      supabase,
-      plantId,
-      dateFrom,
-      dateTo
+    const parsed = parseArkikMaterialMovementsBuffer(buffer, file.name);
+    const [dbEntries, adjustmentsResult, uomMap] = await Promise.all([
+      fetchMaterialEntriesForArkikComparison(supabase, plantId, dateFrom, dateTo),
+      fetchMaterialAdjustmentsForArkikComparison(supabase, plantId, dateFrom, dateTo),
+      fetchMaterialUomHintsByCode(supabase),
+    ]);
+    const enriched = applyArkikQuantityConversion(parsed, uomMap);
+    const conRemision = compareArkikEntries(
+      enriched.entradas,
+      dbEntries,
+      adjustmentsResult.positive_with_remision,
+      adjustmentsResult.positive_without_remision
     );
-    const result = compareArkikEntries(excelEntries, dbEntries);
+    const consumoSinRemision = compareArkikConsumosSinRemision(
+      enriched.consumos_sin_remision,
+      adjustmentsResult.negative_without_remision,
+      adjustmentsResult.negative_with_remision
+    );
+    const regresoProveedor = compareArkikRegresoProveedor(
+      enriched.regresos_proveedor,
+      adjustmentsResult.negative_with_remision,
+      adjustmentsResult.negative_without_remision
+    );
+    const result = buildArkikReconciliationResult(
+      conRemision,
+      consumoSinRemision,
+      regresoProveedor
+    );
 
     return NextResponse.json({
       success: true,

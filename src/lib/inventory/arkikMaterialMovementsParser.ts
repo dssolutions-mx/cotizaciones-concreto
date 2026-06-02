@@ -5,8 +5,39 @@ export type ArkikExcelEntry = {
   material: string;
   proveedor: string;
   remision: string;
+  /** Cantidad en la unidad del bloque Arkik (p. ej. toneladas si unidad = T). */
   cantidad: number;
+  /** Unidad del bloque (fila «Unidad de medida» o tercer segmento Material|Proveedor|UoM). */
+  unit_arkik: string;
   fecha: string | null;
+};
+
+/** Arkik consumption / outbound movement without remisión (col 14 empty). */
+export type ArkikExcelConsumo = {
+  material: string;
+  proveedor: string;
+  movement_type: string;
+  cantidad: number;
+  unit_arkik: string;
+  fecha: string | null;
+};
+
+/** Devolución a proveedor — suele registrarse como ajuste negativo con notas. */
+export type ArkikExcelRegresoProveedor = {
+  material: string;
+  proveedor: string;
+  movement_type: string;
+  remision: string;
+  cantidad: number;
+  unit_arkik: string;
+  fecha: string | null;
+  notas: string;
+};
+
+export type ArkikParseResult = {
+  entradas: ArkikExcelEntry[];
+  consumos_sin_remision: ArkikExcelConsumo[];
+  regresos_proveedor: ArkikExcelRegresoProveedor[];
 };
 
 function cellStr(val: unknown): string {
@@ -45,16 +76,71 @@ export function arkikExcelValueToDate(val: unknown, date1904 = false): string | 
   return null;
 }
 
+/** True when Arkik remisión column is blank / not usable for matching. */
+export function arkikRowHasRemision(remisionRaw: string): boolean {
+  const s = remisionRaw.trim();
+  if (!s) return false;
+  if (/^0+([.,]0+)?$/.test(s.replace(/\s/g, ''))) return false;
+  return true;
+}
+
+const CONSUMO_MOVEMENT_TYPES = new Set([
+  'consumo',
+  'consumición',
+  'consumicion',
+  'salida',
+]);
+
+export function isArkikConsumoMovementType(movementType: string): boolean {
+  const t = movementType.trim().toLowerCase();
+  if (CONSUMO_MOVEMENT_TYPES.has(t)) return true;
+  return t.startsWith('consum');
+}
+
+export function isArkikRegresoProveedorMovementType(movementType: string): boolean {
+  return /regreso\s*a\s*proveedor/i.test(movementType.trim());
+}
+
+/** Texto libre en columnas de comentarios/notas (excluye columnas fijas del layout). */
+export function extractArkikMovementNotes(row: unknown[]): string {
+  const skip = new Set([0, 1, 5, 6, 9, 14]);
+  let best = '';
+  for (let i = 0; i < Math.min(row.length, 24); i++) {
+    if (skip.has(i)) continue;
+    const v = cellStr(row[i]);
+    if (!v || v.length < 3) continue;
+    if (/^(entrada|consumo|salida|regreso|material)/i.test(v)) continue;
+    if (/^\d+([.,]\d+)?$/.test(v)) continue;
+    if (v.length > best.length) best = v;
+  }
+  return best;
+}
+
+/** Row «Unidad de medida» (or similar) → code in col 6 / col 1 (T, kg, …). */
+export function extractArkikUnitFromHeaderRow(row: unknown[]): string {
+  const col0 = cellStr(row[0]);
+  if (!/unidad/i.test(col0)) return '';
+  for (const idx of [6, 1, 2, 3, 4, 5, 7, 8]) {
+    const v = cellStr(row[idx]);
+    if (!v || v === col0) continue;
+    if (/unidad/i.test(v) && /medida/i.test(v)) continue;
+    return v;
+  }
+  return '';
+}
+
 /**
  * Parse Arkik "Movimientos de Material" XLS/XLSX (sectioned by material).
- * Column layout matches Arkik export: col0 header, col1 fecha, col5 tipo, col6 material block, col9 qty, col14 remisión.
+ * Column layout: col0 header, col1 fecha, col5 tipo, col6 material block, col9 qty, col14 remisión.
  */
 export function parseArkikMaterialMovementsWorkbook(
   workbook: XLSX.WorkBook,
   sheetIndex = 0
-): ArkikExcelEntry[] {
+): ArkikParseResult {
   const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
-  if (!sheet) return [];
+  if (!sheet) {
+    return { entradas: [], consumos_sin_remision: [], regresos_proveedor: [] };
+  }
 
   const rows = XLSX.utils.sheet_to_json(sheet, {
     header: 1,
@@ -66,35 +152,69 @@ export function parseArkikMaterialMovementsWorkbook(
 
   let currentMaterial = '';
   let currentProveedor = '';
-  const entries: ArkikExcelEntry[] = [];
+  let currentUnit = 'kg';
+  const entradas: ArkikExcelEntry[] = [];
+  const consumos_sin_remision: ArkikExcelConsumo[] = [];
+  const regresos_proveedor: ArkikExcelRegresoProveedor[] = [];
 
   for (const row of rows) {
     if (!row || row.length === 0) continue;
     const col0 = cellStr(row[0]);
     const col5 = cellStr(row[5]);
     const col6 = cellStr(row[6]);
+    const remisionRaw = cellStr(row[14]);
+    const cantidad = toFloat(row[9]);
+    const fecha = arkikExcelValueToDate(row[1], date1904);
 
-    if (col0 === 'Material|Proveedor' && col6) {
-      const parts = col6.split('|');
-      currentMaterial = (parts[0] ?? '').trim();
-      currentProveedor = (parts[1] ?? '').trim();
+    const unitFromRow = extractArkikUnitFromHeaderRow(row);
+    if (unitFromRow) {
+      currentUnit = unitFromRow;
+      continue;
     }
 
-    if (col5 === 'Entrada') {
-      entries.push({
+    if (col0 === 'Material|Proveedor' && col6) {
+      const parts = col6.split('|').map((p) => p.trim());
+      currentMaterial = parts[0] ?? '';
+      currentProveedor = parts[1] ?? '';
+      if (parts[2]) currentUnit = parts[2];
+    }
+
+    if (col5 === 'Entrada' && arkikRowHasRemision(remisionRaw)) {
+      entradas.push({
         material: currentMaterial,
         proveedor: currentProveedor,
-        remision: cellStr(row[14]),
-        cantidad: toFloat(row[9]),
-        fecha: arkikExcelValueToDate(row[1], date1904),
+        remision: remisionRaw,
+        cantidad,
+        unit_arkik: currentUnit,
+        fecha,
+      });
+    } else if (isArkikRegresoProveedorMovementType(col5)) {
+      regresos_proveedor.push({
+        material: currentMaterial,
+        proveedor: currentProveedor,
+        movement_type: col5,
+        remision: remisionRaw,
+        cantidad,
+        unit_arkik: currentUnit,
+        fecha,
+        notas: extractArkikMovementNotes(row),
+      });
+    } else if (isArkikConsumoMovementType(col5) && !arkikRowHasRemision(remisionRaw)) {
+      consumos_sin_remision.push({
+        material: currentMaterial,
+        proveedor: currentProveedor,
+        movement_type: col5,
+        cantidad,
+        unit_arkik: currentUnit,
+        fecha,
       });
     }
   }
 
-  return entries;
+  return { entradas, consumos_sin_remision, regresos_proveedor };
 }
 
-export async function parseArkikMaterialMovementsFile(file: File): Promise<ArkikExcelEntry[]> {
+export async function parseArkikMaterialMovementsFile(file: File): Promise<ArkikParseResult> {
   const name = file.name.toLowerCase();
   const isCsv = name.endsWith('.csv') || file.type.includes('csv');
 
@@ -117,7 +237,7 @@ export async function parseArkikMaterialMovementsFile(file: File): Promise<Arkik
 export function parseArkikMaterialMovementsBuffer(
   buffer: ArrayBuffer,
   filename: string
-): ArkikExcelEntry[] {
+): ArkikParseResult {
   const isCsv = filename.toLowerCase().endsWith('.csv');
   const workbook = isCsv
     ? XLSX.read(new TextDecoder().decode(buffer), { type: 'string', raw: true, cellDates: false })
