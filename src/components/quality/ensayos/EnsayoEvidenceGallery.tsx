@@ -26,7 +26,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { FileImage, FileSpreadsheet, FileText, ArrowUpRight, Loader2, Trash2 } from 'lucide-react'
+import {
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  ArrowUpRight,
+  Loader2,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  Maximize2,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   evidenciaFallbackUrl,
@@ -70,6 +80,25 @@ export function EnsayoEvidenceGallery({
 
   const hero = photos[activeIndex]
   const heroUrl = hero ? evidenciaPublicUrl(hero._path) : null
+  const photoCount = photos.length
+  const hasMultiplePhotos = photoCount > 1
+
+  const goToPhoto = React.useCallback(
+    (index: number) => {
+      if (photoCount === 0) return
+      const next = ((index % photoCount) + photoCount) % photoCount
+      setActiveIndex(next)
+    },
+    [photoCount]
+  )
+
+  const openLightbox = React.useCallback(
+    (ev: NormalizedEvidencia) => {
+      setLightbox(ev)
+      setLightboxSrc(evidenciaPublicUrl(ev._path))
+    },
+    []
+  )
 
   React.useEffect(() => {
     if (activeIndex >= photos.length && photos.length > 0) {
@@ -94,22 +123,26 @@ export function EnsayoEvidenceGallery({
   function DeleteEvidenceButton({
     ev,
     className: btnClassName,
-    size = 'sm' as const,
+    variant = 'outline' as const,
+    compact = false,
   }: {
     ev: NormalizedEvidencia
     className?: string
-    size?: 'sm' | 'icon'
+    variant?: 'outline' | 'ghost'
+    compact?: boolean
   }) {
     if (!showDelete) return null
     const busy = deletingId === ev.id
     return (
       <Button
         type="button"
-        variant="outline"
-        size={size === 'icon' ? 'icon' : 'sm'}
+        variant={variant}
+        size="sm"
         className={cn(
-          size === 'icon' ? 'h-8 w-8' : 'h-8 text-xs',
-          'border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800',
+          'h-8 gap-1.5 text-xs',
+          variant === 'outline' &&
+            'border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800',
+          variant === 'ghost' && 'text-red-700 hover:bg-red-50 hover:text-red-800',
           btnClassName
         )}
         disabled={deleteBusy}
@@ -121,6 +154,36 @@ export function EnsayoEvidenceGallery({
         }}
       >
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+        {!compact && <span className="hidden sm:inline">Eliminar</span>}
+      </Button>
+    )
+  }
+
+  function PhotoNavButton({
+    direction,
+    onClick,
+  }: {
+    direction: 'prev' | 'next'
+    onClick: () => void
+  }) {
+    const Icon = direction === 'prev' ? ChevronLeft : ChevronRight
+    return (
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon"
+        className={cn(
+          'absolute top-1/2 z-10 h-9 w-9 -translate-y-1/2 rounded-full border border-stone-200/80 bg-white/95 shadow-md hover:bg-white',
+          direction === 'prev' ? 'left-2' : 'right-2'
+        )}
+        disabled={deleteBusy}
+        aria-label={direction === 'prev' ? 'Foto anterior' : 'Foto siguiente'}
+        onClick={(e) => {
+          e.stopPropagation()
+          onClick()
+        }}
+      >
+        <Icon className="h-5 w-5 text-stone-700" />
       </Button>
     )
   }
@@ -149,50 +212,87 @@ export function EnsayoEvidenceGallery({
             </div>
           ) : (
             <>
-              {photos.length > 0 && (
-                <div className="space-y-3">
-                  <div className="relative">
-                    <button
-                      type="button"
-                      className="relative w-full aspect-[16/10] overflow-hidden rounded-xl border border-stone-200 bg-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/40"
-                      onClick={() => {
-                        if (!hero) return
-                        setLightbox(hero)
-                        setLightboxSrc(evidenciaPublicUrl(hero._path))
-                      }}
-                    >
-                      {heroUrl && (
-                        <Image
-                          src={heroUrl}
-                          alt={hero?.nombre_archivo ?? 'Evidencia'}
-                          fill
-                          className="object-cover"
-                          unoptimized
-                          priority
-                        />
-                      )}
-                    </button>
-                    {hero && showDelete && (
-                      <div className="absolute top-2 right-2">
-                        <DeleteEvidenceButton ev={hero} size="icon" />
-                      </div>
+              {photos.length > 0 && hero && (
+                <div className="overflow-hidden rounded-xl border border-stone-200 bg-stone-50/60 shadow-inner">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-stone-200/80 bg-white px-3 py-2.5">
+                    <p className="min-w-0 flex-1 text-sm font-medium text-stone-800 truncate">
+                      {hero.nombre_archivo}
+                    </p>
+                    {hasMultiplePhotos && (
+                      <span className="shrink-0 rounded-md bg-stone-100 px-2 py-0.5 text-xs font-medium tabular-nums text-stone-600">
+                        {activeIndex + 1} / {photoCount}
+                      </span>
                     )}
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs"
+                        disabled={deleteBusy}
+                        onClick={() => openLightbox(hero)}
+                      >
+                        <Maximize2 className="h-3.5 w-3.5 sm:mr-1.5" />
+                        <span className="hidden sm:inline">Ampliar</span>
+                      </Button>
+                      <DeleteEvidenceButton ev={hero} variant="outline" />
+                    </div>
                   </div>
-                  {photos.length > 1 && (
-                    <div className="flex gap-2 overflow-x-auto pb-1 -mx-0.5 px-0.5">
-                      {photos.map((ev, idx) => {
-                        const thumb = evidenciaPublicUrl(ev._path)
-                        return (
-                          <div key={ev.id} className="relative shrink-0">
+
+                  <div className="relative bg-[linear-gradient(45deg,#e7e5e4_25%,transparent_25%),linear-gradient(-45deg,#e7e5e4_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#e7e5e4_75%),linear-gradient(-45deg,transparent_75%,#e7e5e4_75%)] bg-[length:16px_16px] bg-[position:0_0,0_8px,8px_-8px,-8px_0px] bg-stone-100">
+                    <div className="relative mx-auto flex min-h-[min(52vw,320px)] max-h-[min(70vh,560px)] w-full items-center justify-center p-3 sm:min-h-[360px] sm:p-6">
+                      {hasMultiplePhotos && (
+                        <PhotoNavButton direction="prev" onClick={() => goToPhoto(activeIndex - 1)} />
+                      )}
+                      <button
+                        type="button"
+                        className="relative flex h-full w-full max-w-full items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-100 rounded-lg"
+                        onClick={() => openLightbox(hero)}
+                        aria-label="Ver foto en pantalla completa"
+                      >
+                        {heroUrl && (
+                          <Image
+                            src={heroUrl}
+                            alt={hero.nombre_archivo}
+                            width={1600}
+                            height={1200}
+                            className="max-h-[min(68vh,520px)] w-auto max-w-full object-contain drop-shadow-sm"
+                            unoptimized
+                            priority
+                          />
+                        )}
+                      </button>
+                      {hasMultiplePhotos && (
+                        <PhotoNavButton direction="next" onClick={() => goToPhoto(activeIndex + 1)} />
+                      )}
+                    </div>
+                    <p className="pointer-events-none absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-2.5 py-0.5 text-[10px] text-white/90 sm:hidden">
+                      Toca para ampliar
+                    </p>
+                  </div>
+
+                  {hasMultiplePhotos && (
+                    <div className="border-t border-stone-200/80 bg-white px-3 py-3">
+                      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-stone-500">
+                        Todas las fotos
+                      </p>
+                      <div className="flex gap-2.5 overflow-x-auto pb-0.5 snap-x snap-mandatory">
+                        {photos.map((ev, idx) => {
+                          const thumb = evidenciaPublicUrl(ev._path)
+                          const selected = idx === activeIndex
+                          return (
                             <button
+                              key={ev.id}
                               type="button"
                               onClick={() => setActiveIndex(idx)}
                               className={cn(
-                                'relative h-16 w-16 overflow-hidden rounded-lg border-2 transition-colors',
-                                idx === activeIndex
-                                  ? 'border-sky-600 ring-2 ring-sky-600/20'
-                                  : 'border-stone-200 opacity-80 hover:opacity-100'
+                                'group relative h-[4.5rem] w-[4.5rem] shrink-0 snap-start overflow-hidden rounded-lg border-2 transition-all sm:h-24 sm:w-24',
+                                selected
+                                  ? 'border-sky-600 ring-2 ring-sky-600/25 shadow-md scale-[1.02]'
+                                  : 'border-stone-200 opacity-75 hover:opacity-100 hover:border-stone-300'
                               )}
+                              aria-label={`Ver foto ${idx + 1}: ${ev.nombre_archivo}`}
+                              aria-current={selected ? 'true' : undefined}
                             >
                               <Image
                                 src={thumb}
@@ -201,15 +301,19 @@ export function EnsayoEvidenceGallery({
                                 className="object-cover"
                                 unoptimized
                               />
+                              <span
+                                className={cn(
+                                  'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-1 py-1 text-[9px] font-medium text-white truncate opacity-0 transition-opacity',
+                                  selected && 'opacity-100',
+                                  'group-hover:opacity-100'
+                                )}
+                              >
+                                {idx + 1}
+                              </span>
                             </button>
-                            {showDelete && (
-                              <div className="absolute -top-1 -right-1">
-                                <DeleteEvidenceButton ev={ev} size="icon" className="h-7 w-7" />
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -266,7 +370,7 @@ export function EnsayoEvidenceGallery({
                                 </a>
                               </Button>
                             )}
-                            <DeleteEvidenceButton ev={ev} />
+                            <DeleteEvidenceButton ev={ev} variant="ghost" compact />
                           </div>
                         </li>
                       )
@@ -288,26 +392,65 @@ export function EnsayoEvidenceGallery({
           }
         }}
       >
-        <DialogContent className="max-w-[min(96vw,900px)] p-0 gap-0 overflow-hidden bg-stone-950 border-stone-800">
-          <DialogHeader className="p-4 border-b border-stone-800">
-            <DialogTitle className="text-stone-100 text-base truncate pr-8">
+        <DialogContent className="max-w-[min(96vw,1100px)] p-0 gap-0 overflow-hidden bg-stone-950 border-stone-800">
+          <DialogHeader className="flex flex-row items-center gap-2 border-b border-stone-800 p-3 sm:p-4">
+            <DialogTitle className="min-w-0 flex-1 text-stone-100 text-base truncate">
               {lightbox?.nombre_archivo}
             </DialogTitle>
+            {lightbox && hasMultiplePhotos && (
+              <span className="shrink-0 text-xs tabular-nums text-stone-400">
+                {photos.findIndex((p) => p.id === lightbox.id) + 1} / {photoCount}
+              </span>
+            )}
           </DialogHeader>
-          <div className="relative w-full min-h-[50vh] max-h-[80vh] flex items-center justify-center bg-black">
+          <div className="relative flex min-h-[50vh] max-h-[85vh] w-full items-center justify-center bg-black px-10 sm:px-14">
             {lightbox && lightboxSrc && (
               <Image
                 src={lightboxSrc}
                 alt={lightbox.nombre_archivo}
-                width={1200}
-                height={900}
-                className="max-h-[80vh] w-auto h-auto object-contain"
+                width={1600}
+                height={1200}
+                className="max-h-[85vh] w-auto h-auto max-w-full object-contain"
                 unoptimized
                 onError={() => {
                   const fb = evidenciaFallbackUrl(lightbox._path)
                   if (fb && fb !== lightboxSrc) setLightboxSrc(fb)
                 }}
               />
+            )}
+            {lightbox && hasMultiplePhotos && (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute left-2 top-1/2 z-10 h-10 w-10 -translate-y-1/2 rounded-full text-stone-200 hover:bg-white/10 hover:text-white"
+                  aria-label="Foto anterior"
+                  onClick={() => {
+                    const idx = photos.findIndex((p) => p.id === lightbox.id)
+                    const prev = photos[(idx - 1 + photoCount) % photoCount]
+                    goToPhoto(idx - 1)
+                    openLightbox(prev)
+                  }}
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-1/2 z-10 h-10 w-10 -translate-y-1/2 rounded-full text-stone-200 hover:bg-white/10 hover:text-white"
+                  aria-label="Foto siguiente"
+                  onClick={() => {
+                    const idx = photos.findIndex((p) => p.id === lightbox.id)
+                    const next = photos[(idx + 1) % photoCount]
+                    goToPhoto(idx + 1)
+                    openLightbox(next)
+                  }}
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </Button>
+              </>
             )}
           </div>
         </DialogContent>
