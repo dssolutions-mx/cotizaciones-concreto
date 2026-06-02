@@ -18,6 +18,7 @@ import { format, parseISO, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { OptionalDeliveryLocationSection } from '@/components/client-portal/orders/OptionalDeliveryLocationSection';
 import { generateGoogleMapsUrl, validateCoordinates } from '@/lib/maps/deliveryCoordinates';
+import { getBusinessDateString } from '@/lib/client-portal/businessDate';
 
 type Site = { id: string; name: string };
 type Plant = { id: string; name: string };
@@ -220,7 +221,7 @@ export default function ScheduleOrderPage() {
   // Memoized selectors - define before they're used in effects
   const selectedSite = useMemo(() => sites.find(s => s.id === constructionSiteId), [sites, constructionSiteId]);
   const selectedProduct = useMemo(() => products.find(p => p.id === productId), [products, productId]);
-  const todayStr = useMemo(() => formatDateLocal(new Date()), []);
+  const todayStr = useMemo(() => getBusinessDateString(), []);
 
   /** Normalized obra name for APIs (master-recipes + catalog extras) */
   const resolvedSiteName = useMemo(() => {

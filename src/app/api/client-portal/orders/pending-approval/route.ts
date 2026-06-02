@@ -2,6 +2,10 @@ import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import {
   getOptionalPortalClientIdFromRequest,
 } from '@/lib/client-portal/resolvePortalContext';
+import {
+  isConcreteOrderItem,
+  sumConcreteVolumeFromItems,
+} from '@/lib/client-portal/portalOrderCreation';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -86,7 +90,18 @@ export async function GET(request: NextRequest) {
           product_type,
           volume,
           unit_price,
-          total_price
+          total_price,
+          billing_type
+        ),
+        order_additional_products (
+          id,
+          quantity,
+          unit_price,
+          total_price,
+          additional_products (
+            name,
+            code
+          )
         )
       `)
       .in('client_id', clientIds)
@@ -122,19 +137,45 @@ export async function GET(request: NextRequest) {
     const formattedOrders = pendingOrders?.map((order: any) => {
       const creator = creatorProfilesMap.get(order.created_by) || null;
       const client = order.clients as any;
-      const items = order.order_items as any[];
+      const items = (order.order_items as any[]) || [];
+      const legacyExtras = (order.order_additional_products as any[]) || [];
 
-      // Calculate total volume
-      const totalVolume = items?.reduce(
-        (sum, item) => sum + (parseFloat(item.volume) || 0),
+      const totalVolume = sumConcreteVolumeFromItems(items);
+
+      const productSummary = items
+        .filter((item) => isConcreteOrderItem(item.product_type))
+        .map((item) => ({
+          product_name: item.product_type || 'Producto',
+          volume: parseFloat(item.volume) || 0,
+        }));
+
+      const additionalSummary = [
+        ...items
+          .filter((item) => String(item.product_type || '').startsWith('PRODUCTO ADICIONAL:'))
+          .map((item) => ({
+            product_name: item.product_type.replace(/^PRODUCTO ADICIONAL:\s*/i, ''),
+            total_price: parseFloat(item.total_price) || 0,
+          })),
+        ...legacyExtras.map((line) => ({
+          product_name:
+            line.additional_products?.name ||
+            line.additional_products?.code ||
+            'Producto adicional',
+          total_price: parseFloat(line.total_price) || 0,
+        })),
+      ];
+
+      const itemsSubtotal = items.reduce(
+        (sum, item) => sum + (parseFloat(item.total_price) || 0),
         0
-      ) || 0;
-
-      // Get product summary
-      const productSummary = items?.map(item => ({
-        product_name: item.product_type || 'Unknown Product',
-        volume: parseFloat(item.volume) || 0,
-      })) || [];
+      );
+      const legacyExtrasSubtotal = legacyExtras.reduce(
+        (sum, line) => sum + (parseFloat(line.total_price) || 0),
+        0
+      );
+      const computedPreliminary = itemsSubtotal + legacyExtrasSubtotal;
+      const preliminaryAmount =
+        computedPreliminary > 0 ? computedPreliminary : parseFloat(order.preliminary_amount) || 0;
 
       return {
         id: order.id,
@@ -147,11 +188,12 @@ export async function GET(request: NextRequest) {
         created_by_email: creator?.email || '',
         delivery_date: order.delivery_date,
         delivery_time: order.delivery_time,
-        preliminary_amount: order.preliminary_amount,
+        preliminary_amount: preliminaryAmount,
         invoice_amount: order.invoice_amount,
         special_requirements: order.special_requirements,
         total_volume: totalVolume,
         product_summary: productSummary,
+        additional_summary: additionalSummary,
         created_at: order.created_at,
       };
     }) || [];

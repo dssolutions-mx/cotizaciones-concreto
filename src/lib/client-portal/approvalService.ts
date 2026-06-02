@@ -25,6 +25,10 @@ export interface PendingOrder {
     product_name: string;
     volume: number;
   }[];
+  additional_summary?: {
+    product_name: string;
+    total_price: number;
+  }[];
   created_at: string;
 }
 

@@ -94,6 +94,19 @@ export function OrderApprovalCard({ order, onApprove, onReject }: OrderApprovalC
           </div>
         )}
 
+        {order.additional_summary && order.additional_summary.length > 0 && (
+          <div className="mt-2">
+            <p className="text-xs text-gray-600 mb-2">Productos adicionales:</p>
+            <ul className="space-y-1">
+              {order.additional_summary.map((product, idx) => (
+                <li key={idx} className="text-sm text-gray-700">
+                  • {product.product_name} — {formatCurrency(product.total_price)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Special Requirements */}
         {order.special_requirements && (
           <div className="mt-3 pt-3 border-t">

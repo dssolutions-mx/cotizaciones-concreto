@@ -1,13 +1,11 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import {
-  assertConstructionSiteAllowedForCreate,
-  assertPlantAllowedForPortal,
   getOptionalPortalClientIdFromBody,
   getOptionalPortalClientIdFromRequest,
   resolvePortalContext,
 } from '@/lib/client-portal/resolvePortalContext';
+import { createPortalOrder } from '@/lib/client-portal/portalOrderCreation';
 import { NextResponse } from 'next/server';
-import { generateGoogleMapsUrl } from '@/lib/maps/deliveryCoordinates';
 
 export async function GET(request: Request) {
   try {
@@ -114,7 +112,6 @@ export async function POST(request: Request) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
 
-    // Auth
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -140,357 +137,33 @@ export async function POST(request: Request) {
       );
     }
 
-    const clientId = association.clientId;
-
     const { data: client, error: clientError } = await supabase
       .from('clients')
       .select('id')
-      .eq('id', clientId)
+      .eq('id', association.clientId)
       .single();
 
     if (clientError || !client) {
-      console.error('Client not found in clients table:', clientId, clientError);
+      console.error('Client not found in clients table:', association.clientId, clientError);
       return NextResponse.json(
         { error: 'El cliente asociado no existe. Contacta al administrador.' },
         { status: 404 }
       );
     }
 
-    const {
-      construction_site,
-      construction_site_id,
-      delivery_date,
-      delivery_time,
-      requires_invoice,
-      special_requirements,
-      elemento,
-      plant_id,
-      quote_id,
-      quote_detail_id,
-      volume,
-      unit_price,
-      /** When present: only these quote_additional_products ids are copied; [] = none. Omit = copy all (legacy). */
-      selected_additional_product_ids,
-      delivery_latitude: deliveryLatitudeRaw,
-      delivery_longitude: deliveryLongitudeRaw,
-    } = body || {};
+    const result = await createPortalOrder(
+      supabase,
+      user.id,
+      user.email,
+      association,
+      body
+    );
 
-    // Minimal validation
-    if (!delivery_date) {
-      return NextResponse.json({ error: 'delivery_date is required (YYYY-MM-DD)' }, { status: 400 });
-    }
-    if (!elemento || typeof elemento !== 'string' || elemento.trim().length === 0) {
-      return NextResponse.json({ error: 'elemento es requerido' }, { status: 400 });
-    }
-    if (!construction_site && !construction_site_id) {
-      return NextResponse.json({ error: 'construction_site o construction_site_id es requerido' }, { status: 400 });
+    if ('error' in result) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
     }
 
-    // Reject past dates (YYYY-MM-DD)
-    if (delivery_date && typeof delivery_date === 'string') {
-      const today = new Date();
-      const todayStr = today.toISOString().slice(0,10);
-      if (delivery_date < todayStr) {
-        return NextResponse.json({ error: 'La fecha no puede ser en el pasado' }, { status: 400 });
-      }
-    }
-
-    // Generate order number
-    const today = new Date();
-    const dateStr = today.toISOString().slice(0,10).replace(/-/g, '');
-    const randomPart = Math.floor(1000 + Math.random() * 9000);
-    const orderNumber = `ORD-${dateStr}-${randomPart}`;
-
-    // Fetch the actual price from quote_details (source of truth)
-    // This ensures correct pricing even if user doesn't have view_prices permission
-    let actualUnitPrice = 0;
-    if (quote_detail_id) {
-      const { data: quoteDetailForPrice, error: priceError } = await supabase
-        .from('quote_details')
-        .select('final_price')
-        .eq('id', quote_detail_id)
-        .single();
-      
-      if (priceError) {
-        console.error('Error fetching quote_details price:', priceError);
-        console.error('quote_detail_id:', quote_detail_id, 'user:', user.id);
-        // Don't fail the order - use the payload price as fallback
-        // This handles cases where RLS might block the query
-        actualUnitPrice = Number(unit_price || 0);
-      } else if (quoteDetailForPrice?.final_price) {
-        actualUnitPrice = Number(quoteDetailForPrice.final_price);
-      }
-    } else {
-      // No quote_detail_id, use payload price
-      actualUnitPrice = Number(unit_price || 0);
-    }
-
-    // Insert order - use actual price from database, not from payload
-    const totalAmount = (volume && actualUnitPrice) ? Number(volume) * actualUnitPrice : 0;
-
-    // Validate construction_site_id is a valid UUID (if provided)
-    // If it's not a UUID, it's likely a fallback site name, so set it to null
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const validSiteId = construction_site_id && uuidRegex.test(construction_site_id) ? construction_site_id : null;
-
-    const siteGate = assertConstructionSiteAllowedForCreate(association, validSiteId);
-    if (!siteGate.ok) {
-      return NextResponse.json({ error: siteGate.message }, { status: 403 });
-    }
-
-    const plantIdStr = typeof plant_id === 'string' && plant_id.trim() ? plant_id.trim() : null;
-    const plantGate = assertPlantAllowedForPortal(association, plantIdStr);
-    if (!plantGate.ok) {
-      return NextResponse.json({ error: plantGate.message }, { status: 403 });
-    }
-
-    const hasLat =
-      deliveryLatitudeRaw !== undefined && deliveryLatitudeRaw !== null && deliveryLatitudeRaw !== '';
-    const hasLng =
-      deliveryLongitudeRaw !== undefined && deliveryLongitudeRaw !== null && deliveryLongitudeRaw !== '';
-    let deliveryLatNum: number | null = null;
-    let deliveryLngNum: number | null = null;
-    if (hasLat !== hasLng) {
-      return NextResponse.json(
-        { error: 'Si indica ubicación de entrega, debe enviar latitud y longitud.' },
-        { status: 400 }
-      );
-    }
-    if (hasLat && hasLng) {
-      const lat =
-        typeof deliveryLatitudeRaw === 'number'
-          ? deliveryLatitudeRaw
-          : parseFloat(String(deliveryLatitudeRaw).trim());
-      const lng =
-        typeof deliveryLongitudeRaw === 'number'
-          ? deliveryLongitudeRaw
-          : parseFloat(String(deliveryLongitudeRaw).trim());
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        return NextResponse.json({ error: 'Coordenadas de entrega inválidas.' }, { status: 400 });
-      }
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        return NextResponse.json({ error: 'Coordenadas de entrega fuera de rango.' }, { status: 400 });
-      }
-      deliveryLatNum = lat;
-      deliveryLngNum = lng;
-    }
-
-    const { data: creatorProfile } = await supabase
-      .from('user_profiles')
-      .select('first_name, last_name, email')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    const portalUserDisplayName =
-      [creatorProfile?.first_name, creatorProfile?.last_name].filter(Boolean).join(' ').trim() ||
-      creatorProfile?.email ||
-      user.email ||
-      '';
-
-    const insertPayload: Record<string, any> = {
-      client_id: client.id,
-      construction_site: construction_site ?? null,
-      construction_site_id: validSiteId,
-      order_number: orderNumber,
-      delivery_date,
-      delivery_time: delivery_time ?? null,
-      requires_invoice: Boolean(requires_invoice),
-      special_requirements: special_requirements ?? null,
-      total_amount: totalAmount,
-      order_status: 'created',
-      credit_status: 'pending',
-      elemento,
-      plant_id: plantIdStr,
-      quote_id: quote_id ?? null,
-      // Default hidden site verification to green
-      site_access_rating: 'green',
-      // Set created_by to the portal user's ID
-      created_by: user.id,
-      // Manual portal orders (not Arkik / auto-generated): tag internal comments with creator name for ops visibility
-      auto_generated: false,
-      comentarios_internos: portalUserDisplayName || null,
-      // Note: client_approval_status is set by the database trigger based on user permissions
-    };
-
-    if (deliveryLatNum !== null && deliveryLngNum !== null) {
-      insertPayload.delivery_latitude = deliveryLatNum;
-      insertPayload.delivery_longitude = deliveryLngNum;
-      insertPayload.delivery_google_maps_url = generateGoogleMapsUrl(
-        String(deliveryLatNum),
-        String(deliveryLngNum)
-      );
-    }
-
-    const { data: created, error: insertError } = await supabase
-      .from('orders')
-      .insert(insertPayload)
-      .select('id')
-      .single();
-
-    if (insertError) {
-      console.error('Error creating client-portal order:', insertError);
-      return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
-    }
-
-    // Create order_item if quote_detail_id provided
-    if (created?.id && quote_detail_id && volume) {
-      // Fetch the quote_detail to get master_recipe info and product_type
-      const { data: quoteDetail, error: quoteDetailError } = await supabase
-        .from('quote_details')
-        .select(`
-          id,
-          final_price,
-          master_recipe_id,
-          recipe_id,
-          pump_service,
-          master_recipes:master_recipe_id (
-            id,
-            master_code
-          ),
-          recipes:recipe_id (
-            recipe_code
-          )
-        `)
-        .eq('id', quote_detail_id)
-        .single();
-
-      if (quoteDetailError) {
-        console.error('Error fetching quote detail for order item:', quoteDetailError);
-        console.error('quote_detail_id:', quote_detail_id, 'user:', user.id, 'clientId:', clientId);
-        // RLS might be blocking - still create order item with available info
-      }
-
-      // Determine product_type (required NOT NULL field)
-      let productType = 'CONCRETO'; // Default fallback
-      if (quoteDetail?.master_recipe_id && quoteDetail?.master_recipes) {
-        productType = (quoteDetail.master_recipes as any).master_code || 'CONCRETO';
-      } else if (quoteDetail?.pump_service) {
-        productType = 'SERVICIO DE BOMBEO';
-      }
-
-      // Use the actual price from quote_details if available, otherwise use payload
-      const itemUnitPrice = quoteDetail?.final_price 
-        ? Number(quoteDetail.final_price) 
-        : actualUnitPrice;
-      const itemTotalPrice = Number(volume) * itemUnitPrice;
-
-      const { error: itemError } = await supabase
-        .from('order_items')
-        .insert({
-          order_id: created.id,
-          quote_detail_id,
-          recipe_id: null, // ALWAYS null for client portal orders - only use master recipes
-          master_recipe_id: quoteDetail?.master_recipe_id || null,
-          product_type: productType,
-          volume: Number(volume),
-          unit_price: itemUnitPrice,
-          total_price: itemTotalPrice,
-          has_pump_service: quoteDetail?.pump_service || false,
-          pump_price: quoteDetail?.pump_service ? itemUnitPrice : null,
-          has_empty_truck_charge: false,
-          pump_volume: null
-        });
-
-      if (itemError) {
-        console.error('Error creating order item:', itemError);
-        console.error('Order was created with id:', created.id, 'but order_items insert failed');
-        // Order was created, just log the item error and continue
-        // The order is still usable, just missing the item details
-      }
-    }
-
-    // Additional products: explicit selection (catalog / multi-quote) or legacy copy-all from quote_id
-    if (created?.id) {
-      const hasExplicitSelection = Array.isArray(selected_additional_product_ids);
-
-      if (hasExplicitSelection) {
-        const want = new Set(
-          selected_additional_product_ids.filter((x: unknown) => typeof x === 'string') as string[]
-        );
-
-        if (want.size > 0) {
-          const ids = Array.from(want);
-          const { data: qapRows, error: qapFetchError } = await supabase
-            .from('quote_additional_products')
-            .select('*')
-            .in('id', ids);
-
-          if (qapFetchError) {
-            console.error('Error fetching selected quote additional products:', qapFetchError);
-          } else if (qapRows && qapRows.length > 0) {
-            const quoteIds = Array.from(new Set(qapRows.map((r: { quote_id: string }) => r.quote_id)));
-            const { data: quoteRows } = await supabase
-              .from('quotes')
-              .select('id, client_id')
-              .in('id', quoteIds);
-
-            const clientByQuote = new Map((quoteRows || []).map((q: any) => [q.id, q.client_id]));
-            const toCopy = qapRows.filter((r: any) => clientByQuote.get(r.quote_id) === clientId);
-
-            if (toCopy.length < want.size) {
-              console.warn(
-                'Some selected_additional_product_ids were skipped (not found or wrong client)'
-              );
-            }
-
-            if (toCopy.length > 0) {
-              const orderAdditionalProducts = toCopy.map((product: any) => ({
-                order_id: created.id,
-                quote_additional_product_id: product.id,
-                additional_product_id: product.additional_product_id,
-                quantity: product.quantity,
-                unit_price: product.unit_price,
-                total_price: product.total_price,
-                notes: product.notes,
-              }));
-
-              const { error: insertAdditionalError } = await supabase
-                .from('order_additional_products')
-                .insert(orderAdditionalProducts);
-
-              if (insertAdditionalError) {
-                console.error('Error inserting order additional products:', insertAdditionalError);
-              } else {
-                console.log(`Copied ${toCopy.length} additional products to order ${created.id}`);
-              }
-            }
-          }
-        }
-      } else if (quote_id) {
-        const { data: quoteAdditionalProducts, error: additionalError } = await supabase
-          .from('quote_additional_products')
-          .select('*')
-          .eq('quote_id', quote_id);
-
-        if (additionalError) {
-          console.error('Error fetching quote additional products:', additionalError);
-        } else if (quoteAdditionalProducts && quoteAdditionalProducts.length > 0) {
-          const orderAdditionalProducts = quoteAdditionalProducts.map((product) => ({
-            order_id: created.id,
-            quote_additional_product_id: product.id,
-            additional_product_id: product.additional_product_id,
-            quantity: product.quantity,
-            unit_price: product.unit_price,
-            total_price: product.total_price,
-            notes: product.notes,
-          }));
-
-          const { error: insertAdditionalError } = await supabase
-            .from('order_additional_products')
-            .insert(orderAdditionalProducts);
-
-          if (insertAdditionalError) {
-            console.error('Error inserting order additional products:', insertAdditionalError);
-          } else {
-            console.log(
-              `Copied ${quoteAdditionalProducts.length} additional products to order ${created.id}`
-            );
-          }
-        }
-      }
-    }
-
-    return NextResponse.json({ id: created?.id }, { status: 201 });
+    return NextResponse.json({ id: result.id }, { status: 201 });
   } catch (error) {
     console.error('Orders API POST error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
