@@ -30,7 +30,7 @@ export default function PumpingServicePage() {
         <div className="mb-6">
           <h1 className="text-2xl font-bold mb-2">Servicio de Bombeo</h1>
           <p className="text-muted-foreground">
-            Registra remisiones de servicio de bombeo de manera independiente
+            Registra remisiones de servicio de bombeo y agrega evidencia después en Administración
           </p>
         </div>
         <div className="animate-pulse">
@@ -47,7 +47,7 @@ export default function PumpingServicePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2">Servicio de Bombeo</h1>
         <p className="text-muted-foreground">
-          Registra remisiones de servicio de bombeo de manera independiente
+          Registra remisiones de servicio de bombeo y agrega evidencia después en Administración
         </p>
       </div>
 
@@ -60,7 +60,7 @@ export default function PumpingServicePage() {
           {canViewAdmin && (
             <TabsTrigger value="admin" className="flex items-center gap-2">
               <Settings className="h-4 w-4" />
-              Administración
+              Remisiones y evidencia
             </TabsTrigger>
           )}
         </TabsList>

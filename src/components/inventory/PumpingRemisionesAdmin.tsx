@@ -7,11 +7,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { FileText, Eye, ExternalLink, Search, Filter, Loader2, AlertCircle, Calendar } from 'lucide-react';
-import { useSignedUrls } from '@/hooks/useSignedUrls';
+import { FileText, ExternalLink, Search, Filter, Loader2, AlertCircle } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
+import PumpingRemisionEvidencePanel, {
+  type PumpingRemisionEvidenceItem,
+} from '@/components/inventory/PumpingRemisionEvidencePanel';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
-import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 interface PumpingEvidence {
@@ -76,7 +77,6 @@ export default function PumpingRemisionesAdmin() {
     search: ''
   });
 
-  const { getSignedUrl, isLoading: urlLoading } = useSignedUrls('remision-documents', 3600);
   const { availablePlants } = usePlantContext();
 
   const myPlantName = useMemo(() => {
@@ -123,18 +123,18 @@ export default function PumpingRemisionesAdmin() {
     fetchPumpingRemisiones(1);
   };
 
-  const handleViewEvidence = async (evidence: PumpingEvidence) => {
-    try {
-      const signedUrl = await getSignedUrl(evidence.file_path);
-      if (signedUrl) {
-        window.open(signedUrl, '_blank');
-      } else {
-        toast.error('No se pudo generar el enlace para ver el documento');
-      }
-    } catch (error) {
-      console.error('Error viewing evidence:', error);
-      toast.error('Error al abrir el documento');
-    }
+  const handleEvidenceChange = (remisionId: string, evidence: PumpingRemisionEvidenceItem[]) => {
+    setPumpingRemisiones((prev) =>
+      prev.map((r) =>
+        r.id === remisionId
+          ? {
+              ...r,
+              evidence: evidence as PumpingEvidence[],
+              evidenceCount: evidence.length,
+            }
+          : r
+      )
+    );
   };
 
   const handleViewOrder = (orderId: string) => {
@@ -145,21 +145,6 @@ export default function PumpingRemisionesAdmin() {
     if (!dateStr) return '-';
     // Simply return the date string as-is since dates are already in local time
     return dateStr;
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const getFileIcon = (mimeType: string) => {
-    if (mimeType.startsWith('image/')) return '🖼️';
-    if (mimeType === 'application/pdf') return '📄';
-    if (mimeType.includes('text/')) return '📝';
-    return '📎';
   };
 
   if (loading) {
@@ -346,61 +331,13 @@ export default function PumpingRemisionesAdmin() {
                     </div>
                   </div>
 
-                  {/* Evidence List */}
-                  {remision.evidence.length > 0 ? (
-                    <div className="space-y-2">
-                      <h5 className="text-sm font-medium text-gray-700 mb-2">Documentos de Evidencia:</h5>
-                      <div className="grid gap-2">
-                        {remision.evidence.map((evidence) => (
-                          <div
-                            key={evidence.id}
-                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border"
-                          >
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <span className="text-lg">{getFileIcon(evidence.mime_type)}</span>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900 truncate">
-                                  {evidence.original_name}
-                                </p>
-                                <div className="flex items-center gap-2 text-xs text-gray-500">
-                                  <span>{formatFileSize(evidence.file_size)}</span>
-                                  <span>•</span>
-                                  <span>{formatDateSafely(evidence.created_at)}</span>
-                                  <span>•</span>
-                                  <Badge variant="outline" className="text-xs">
-                                    {evidence.document_type.replace('_', ' ')}
-                                  </Badge>
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleViewEvidence(evidence)}
-                                disabled={urlLoading(evidence.file_path)}
-                                className="flex items-center gap-1"
-                              >
-                                {urlLoading(evidence.file_path) ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Eye className="h-3 w-3" />
-                                )}
-                                Ver
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-4 text-gray-500">
-                      <FileText className="h-6 w-6 mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm">Sin documentos de evidencia</p>
-                    </div>
-                  )}
-
-
+                  <PumpingRemisionEvidencePanel
+                    remisionId={remision.id}
+                    plantId={remision.plant_id}
+                    remisionNumber={remision.remision_number}
+                    initialEvidence={remision.evidence}
+                    onEvidenceChange={(evidence) => handleEvidenceChange(remision.id, evidence)}
+                  />
                 </div>
               ))}
             </div>
