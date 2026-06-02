@@ -35,7 +35,9 @@ export default function ReconciliationStep({
   return (
     <div className="space-y-6">
       <p className="text-sm text-stone-500">
-        Los siguientes ajustes se crearán automáticamente al sellar el cierre. Revisa y confirma.
+        Al sellar se registrarán ajustes con fecha de fin de período, comparando el conteo físico
+        contra el inventario teórico de ese mes (no el stock vivo actual). El dosificador sigue
+        reflejando movimientos posteriores al cierre (p. ej. consumos de junio).
       </p>
 
       {withVariance.length === 0 && (

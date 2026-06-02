@@ -871,9 +871,9 @@ export class InventoryClosureService {
     const dateStr = adjustmentDate.replace(/-/g, '');
 
     // Create adjustment for each material (idempotent — no double seal).
-    // NOTE: the reported variance (physical vs theoretical) is for justification/audit only.
-    // The stock movement below is driven by physical vs LIVE book stock so the closure always
-    // trues current_stock up to the counted reality, independent of any live/theoretical drift.
+    // Adjustment qty = physical count − libro teórico al cierre del período (period_end).
+    // Does NOT use live material_inventory (e.g. June consumptions after May 31 must not
+    // distort the May close). DB trigger skips current_stock for reference_type inventory_closure.
     for (const mat of materials) {
       const physicalCountKg = mat.physical_count_kg == null ? null : Number(mat.physical_count_kg);
       if (physicalCountKg == null) continue; // no physical count → nothing to reconcile
@@ -925,19 +925,9 @@ export class InventoryClosureService {
         : 1;
       const adjustmentNumber = `ADJ-${dateStr}-${String(seq).padStart(3, '0')}`;
 
-      // Get current stock for inventory_before
-      const { data: invRow } = await this.supabase
-        .from('material_inventory')
-        .select('current_stock')
-        .eq('plant_id', closure.plant_id)
-        .eq('material_id', mat.material_id)
-        .maybeSingle();
-
-      const inventoryBefore = Number(invRow?.current_stock ?? 0);
-      // Drive the movement off LIVE book vs physical count so the closure always converges
-      // current_stock → physical, regardless of any prior live/theoretical drift.
+      const inventoryBefore = Number(mat.theoretical_final_kg ?? 0);
       const stockDeltaKg = physicalCountKg - inventoryBefore;
-      if (Math.abs(stockDeltaKg) < 0.001) continue; // live book already matches physical count
+      if (Math.abs(stockDeltaKg) < 0.001) continue; // teórico ya coincide con conteo físico del período
       // physical > live → under-counted → add stock (physical_count); else remove (correction)
       const adjustmentType = stockDeltaKg > 0 ? 'physical_count' : 'correction';
       const quantityAdjusted = Math.abs(stockDeltaKg); // always positive; direction from type

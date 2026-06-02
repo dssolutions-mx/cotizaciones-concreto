@@ -78,12 +78,13 @@ export async function ledgerAuditAdjustmentTotalsByMaterialIds(
     supabase
       .from('material_adjustments')
       .select(
-        'material_id, quantity_adjusted, adjustment_type, adjustment_date, adjustment_number, reference_notes',
+        'material_id, quantity_adjusted, adjustment_type, adjustment_date, adjustment_number, reference_notes, reference_type',
       )
       .eq('plant_id', plantId)
       .in('material_id', materialIds)
       .gte('adjustment_date', startDate)
       .lte('adjustment_date', endDate)
+      .not('reference_type', 'eq', 'inventory_closure')
       .order('adjustment_date', { ascending: false }),
     remisionIds.length > 0
       ? supabase
