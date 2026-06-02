@@ -358,7 +358,7 @@ export default function ArkikEntriesComparator() {
                     r.proveedor,
                     '—',
                   ],
-                })}
+                }))}
                 headers={['Material', 'Remisión', 'Fecha', 'Cantidad', 'Proveedor (Arkik)', 'Entrada']}
               />
               {onlyExcelCount > 0 ? (
@@ -387,7 +387,7 @@ export default function ArkikEntriesComparator() {
                     r.supplier,
                     r.entry_number,
                   ],
-                })}
+                }))}
                 headers={[
                   'Material',
                   'Remisión',
@@ -413,7 +413,7 @@ export default function ArkikEntriesComparator() {
                     fmtQty(r.cantidad_db),
                     r.entry_number,
                   ],
-                })}
+                }))}
                 headers={[
                   'Material',
                   'Remisión',
