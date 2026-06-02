@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 // Import the singleton instance instead of the createClient function
 import { supabase } from '@/lib/supabase';
 import { getDefaultPathForRole } from '@/lib/auth/default-route';
+import { userNeedsPasswordSetup } from '@/lib/auth/password-setup';
 
 // Component that uses useSearchParams
 function AuthCallbackHandler() {
@@ -53,8 +54,16 @@ function AuthCallbackHandler() {
           setError(`Error al verificar el enlace: ${verifyError.message}`);
           return;
         }
-        const isInvite = otpType === 'invite' || otpType === 'signup';
-        router.push(isInvite ? '/update-password?type=invite' : '/update-password?type=recovery');
+        if (otpType === 'recovery') {
+          router.push('/update-password?type=recovery');
+          return;
+        }
+        const { data: { session: otpSession } } = await supabase.auth.getSession();
+        if (userNeedsPasswordSetup(otpSession?.user)) {
+          router.push('/update-password?type=invite');
+          return;
+        }
+        router.push(await getRedirectTarget());
         return;
       }
 
@@ -102,18 +111,8 @@ function AuthCallbackHandler() {
                 last_sign_in_at: session.user?.last_sign_in_at
               });
               
-              // Check if this is a new user (invitation flow)
-              const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
-              
-              // Also check user metadata for invitation indicators
-              const userMetadata = session.user?.user_metadata || {};
-              const isInvitationMetadata = userMetadata.invited === true;
-              
-              if (isNewUser || isInvitationMetadata) {
-                console.log('New user/invitation detected from SendGrid redirect, redirecting to update-password', {
-                  isNewUser,
-                  isInvitationMetadata
-                });
+              if (userNeedsPasswordSetup(session.user)) {
+                console.log('Password setup required after SendGrid redirect, redirecting to update-password');
                 router.push('/update-password?type=invite');
                 return;
               } else {
@@ -140,17 +139,8 @@ function AuthCallbackHandler() {
             last_sign_in_at: session.user?.last_sign_in_at
           });
           
-          const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
-          
-          // Also check user metadata for invitation indicators
-          const userMetadata = session.user?.user_metadata || {};
-          const isInvitationMetadata = userMetadata.invited === true;
-          
-          if (isNewUser || isInvitationMetadata) {
-            console.log('New user/invitation detected from session (no hash), redirecting to update-password', {
-              isNewUser,
-              isInvitationMetadata
-            });
+          if (userNeedsPasswordSetup(session.user)) {
+            console.log('Password setup required from session (no hash), redirecting to update-password');
             router.push('/update-password?type=invite');
             return;
           }
@@ -172,25 +162,11 @@ function AuthCallbackHandler() {
           return;
         }
 
-        // Check if this is a new user (likely from invitation) or password recovery
-        // New users have created_at === last_sign_in_at (they've never logged in)
-        const isNewUser = data.user?.created_at === data.user?.last_sign_in_at;
         const isRecoveryFlow = type === 'recovery' || recoveryType === 'recovery';
-        
-        // Also check if user metadata indicates this is an invitation
-        const userMetadata = data.user?.user_metadata || {};
-        const isInvitationMetadata = userMetadata.invited === true;
+        const needsSetup = userNeedsPasswordSetup(data.user);
 
-        // Both new users (invitations) and password recovery should go to update-password
-        // Be more aggressive: if type is invite/signup OR if it's a new user OR if metadata indicates invitation
-        if (isNewUser || type === 'invite' || type === 'signup' || isRecoveryFlow || isInvitationMetadata) {
-          console.log('Redirecting to update-password', { 
-            isNewUser, 
-            type, 
-            isRecoveryFlow, 
-            isInvitationMetadata,
-            userMetadata 
-          });
+        if (isRecoveryFlow || needsSetup) {
+          console.log('Redirecting to update-password', { type, isRecoveryFlow, needsSetup });
           // Pass recovery type if it's a recovery flow, otherwise pass invite type
           const updatePasswordUrl = isRecoveryFlow 
             ? '/update-password?type=recovery'
@@ -220,9 +196,9 @@ function AuthCallbackHandler() {
             if (sessionData?.session && !sessionError) {
               console.log('Session recovered despite PKCE error');
               const isRecoveryFlow = recoveryType === 'recovery';
-              const isNewUser = sessionData.session.user?.created_at === sessionData.session.user?.last_sign_in_at;
-              
-              if (isRecoveryFlow || isNewUser) {
+              const needsSetup = userNeedsPasswordSetup(sessionData.session.user);
+
+              if (isRecoveryFlow || needsSetup) {
                 const updatePasswordUrl = isRecoveryFlow 
                   ? '/update-password?type=recovery'
                   : '/update-password';
@@ -246,17 +222,12 @@ function AuthCallbackHandler() {
 
         // Check if this is a password recovery flow
         const isRecoveryFlow = recoveryType === 'recovery';
-        const isNewUser = data.user?.created_at === data.user?.last_sign_in_at;
-        
-        // Also check user metadata for invitation indicators
-        const userMetadata = data.user?.user_metadata || {};
-        const isInvitationMetadata = userMetadata.invited === true;
-        
-        if (isRecoveryFlow || isNewUser || isInvitationMetadata) {
-          console.log('Password recovery or new user flow detected, redirecting to update-password', {
+        const needsSetup = userNeedsPasswordSetup(data.user);
+
+        if (isRecoveryFlow || needsSetup) {
+          console.log('Password recovery or setup required, redirecting to update-password', {
             isRecoveryFlow,
-            isNewUser,
-            isInvitationMetadata
+            needsSetup,
           });
           const updatePasswordUrl = isRecoveryFlow 
             ? '/update-password?type=recovery'
@@ -273,18 +244,8 @@ function AuthCallbackHandler() {
 
         if (sessionData.session) {
           console.log('Found existing session');
-          // Check if this might be a new user from invitation (SendGrid might have lost hash)
-          const isNewUser = sessionData.session.user?.created_at === sessionData.session.user?.last_sign_in_at;
-          
-          // Also check user metadata for invitation indicators
-          const userMetadata = sessionData.session.user?.user_metadata || {};
-          const isInvitationMetadata = userMetadata.invited === true;
-          
-          if (isNewUser || isInvitationMetadata) {
-            console.log('New user or invitation detected from session, redirecting to update-password', {
-              isNewUser,
-              isInvitationMetadata
-            });
+          if (userNeedsPasswordSetup(sessionData.session.user)) {
+            console.log('Password setup required from session, redirecting to update-password');
             router.push('/update-password?type=invite');
           } else {
             const target = await getRedirectTarget();
@@ -326,11 +287,9 @@ function AuthCallbackHandler() {
         if (!hasTokens) {
           console.log('Session established via auth state change (likely SendGrid redirect)');
           hasRedirected = true;
-          const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
-          
-          if (isNewUser) {
-            console.log('New user detected from auth state change, redirecting to update-password');
-            router.push('/update-password');
+          if (userNeedsPasswordSetup(session.user)) {
+            console.log('Password setup required from auth state change, redirecting to update-password');
+            router.push('/update-password?type=invite');
           } else {
             const target = await getRedirectTarget();
             router.push(target);

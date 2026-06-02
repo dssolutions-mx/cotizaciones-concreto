@@ -755,11 +755,13 @@ function UpdatePasswordForm() {
         password: password,
       };
       
-      // Only mark password_set for invitation flow (new users), not recovery
-      if (invitationFlow) {
+      // Mark password_set for any non-recovery update (invite magic link often clears isNewUser before this page)
+      const isRecoveryFlow = searchParams.get('type') === 'recovery';
+      if (!isRecoveryFlow) {
         updateData.data = {
-          password_set: true, // Mark that user has set their password
+          password_set: true,
           password_set_at: new Date().toISOString(),
+          invited: false,
         };
       }
       

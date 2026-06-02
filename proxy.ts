@@ -269,7 +269,17 @@ export async function proxy(request: NextRequest) {
   }
 
   // Authenticated users on login/register or / → role-specific home (see role-home.ts)
-  if (user && (pathname === '/login' || pathname === '/register' || pathname === '/')) {
+  // Skip when user must sign in again after invite password setup (stale session + query flags)
+  const postPasswordSetupLogin =
+    request.nextUrl.searchParams.get('force_logout') === 'true' ||
+    request.nextUrl.searchParams.get('password_set') === 'true' ||
+    request.nextUrl.searchParams.get('reason') === 'password_setup';
+
+  if (
+    user &&
+    (pathname === '/login' || pathname === '/register' || pathname === '/') &&
+    !postPasswordSetupLogin
+  ) {
     try {
       const { data: profileData } = await supabase
         .from('user_profiles')

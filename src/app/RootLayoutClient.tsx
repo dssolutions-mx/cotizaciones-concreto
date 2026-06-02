@@ -66,6 +66,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { BotIdClientGate } from '@/components/security/BotIdClientGate';
 import { isQualityTeamInRestrictedPlant } from '@/lib/quality-plant-restrictions';
 import { getDashboardNavLabel } from '@/lib/auth/role-home';
+import { userNeedsPasswordSetup } from '@/lib/auth/password-setup';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -590,23 +591,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Only check if we have a session and profile, and we're not already on an auth page
     if (session?.user && profile && !isAuthRoute && !isLandingRoute) {
-      // Check if this is a new user who hasn't set their password yet
-      // New users have created_at === last_sign_in_at (they've never logged in with password)
-      const isNewUser = session.user.created_at === session.user.last_sign_in_at;
-      
-      // Explicit invite flag only — EXTERNAL_CLIENT appears on all portal JWTs and must not
-      // force everyone through update-password forever when password_set is missing.
-      const userMetadata = session.user.user_metadata || {};
-      const isExplicitInvite = userMetadata.invited === true;
-      const hasPasswordSet = userMetadata.password_set === true; // Check if password has been set
-      
-      // Only redirect if user is new or explicitly invited AND hasn't set password yet
-      if ((isNewUser || isExplicitInvite) && !hasPasswordSet) {
-        console.log('Root layout: Detected new user/invitation without password, redirecting to update-password', {
-          isNewUser,
-          isExplicitInvite,
-          hasPasswordSet,
-          email: session.user.email
+      if (userNeedsPasswordSetup(session.user)) {
+        console.log('Root layout: User must complete password setup, redirecting to update-password', {
+          email: session.user.email,
         });
         router.replace('/update-password?type=invite');
         return;
