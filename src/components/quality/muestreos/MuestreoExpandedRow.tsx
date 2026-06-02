@@ -7,10 +7,14 @@ import { TableCell, TableRow } from '@/components/ui/table'
 import { Circle, Square, RectangleHorizontal, Star, ExternalLink } from 'lucide-react'
 import { cn, formatDate } from '@/lib/utils'
 import type { Ensayo, MuestreoWithRelations, MuestraWithRelations } from '@/types/quality'
-import { resolveEnsayoResistenciaReportada } from '@/lib/qualityHelpers'
 import {
-  computeResistanceCompliance,
-  resistanceComplianceClass,
+  ensayoUsaFactorCorreccion,
+  resolveEnsayoPorcentajeCumplimiento,
+  resolveEnsayoResistenciaReportada,
+} from '@/lib/qualityHelpers'
+import {
+  formatPorcentajeCumplimiento,
+  resistanceDisplayClass,
 } from '@/components/quality/muestreos/muestreosListHelpers'
 
 function TipoIcon({ tipo }: { tipo: string }) {
@@ -64,11 +68,11 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                   )[0]
                 : undefined
             const resistencia = ensayo ? resolveEnsayoResistenciaReportada(ensayo as Ensayo) : null
-            const pct = ensayo?.porcentaje_cumplimiento
-            const compliance =
-              resistencia != null && fc != null && fc > 0
-                ? computeResistanceCompliance(Math.round(resistencia), fc)
-                : ('none' as const)
+            const pct =
+              ensayo && resistencia != null && resistencia > 0
+                ? resolveEnsayoPorcentajeCumplimiento(ensayo as Ensayo, fc ?? undefined)
+                : null
+            const conFactor = ensayo ? ensayoUsaFactorCorreccion(ensayo as Ensayo) : null
 
             const ensayoViewId = primaryEnsayoIdForView(m)
             const isDiscarded = m.estado === 'DESCARTADO'
@@ -117,13 +121,20 @@ export default function MuestreoExpandedRow({ muestreo, colSpan }: Props) {
                     <span
                       className={cn(
                         'inline-flex text-xs font-mono tabular-nums rounded px-1.5 py-0.5',
-                        resistanceComplianceClass(compliance)
+                        resistanceDisplayClass()
                       )}
                     >
                       {Math.round(resistencia ?? 0)} / {fc ?? '—'} kg/cm²
                     </span>
                     {pct != null && (
-                      <div className="text-[10px] text-stone-500">{pct.toFixed(0)}% cumpl.</div>
+                      <div className="text-[10px] font-medium text-stone-700 tabular-nums">
+                        {formatPorcentajeCumplimiento(pct)} cumpl.
+                      </div>
+                    )}
+                    {conFactor != null && (
+                      <div className="text-[10px] text-stone-500">
+                        {conFactor ? 'Con factor' : 'Sin factor'}
+                      </div>
                     )}
                   </div>
                 )}

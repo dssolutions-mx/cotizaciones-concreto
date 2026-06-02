@@ -57,11 +57,11 @@ import MuestreoKpiStrip from '@/components/quality/muestreos/MuestreoKpiStrip'
 import MuestreoExpandedRow from '@/components/quality/muestreos/MuestreoExpandedRow'
 import {
   calcularResistencia,
-  computeResistanceCompliance,
   computeSpecimenDots,
+  formatPorcentajeCumplimiento,
   getConstructionSite,
   filterAndSortMuestreosList,
-  resistanceComplianceClass,
+  resistanceDisplayClass,
   type SortOption,
   type SpecimenDotKind,
 } from '@/components/quality/muestreos/muestreosListHelpers'
@@ -664,7 +664,7 @@ export default function MuestreosListClient() {
                   <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[120px]">
                     Especímenes
                   </TableHead>
-                  <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[130px]">
+                  <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[150px]">
                     Resistencia
                   </TableHead>
                   <TableHead className="text-center text-xs font-semibold uppercase tracking-wide text-stone-600 w-[110px]">
@@ -679,9 +679,9 @@ export default function MuestreosListClient() {
                 {filteredMuestreos.map((muestreo) => {
                   const id = muestreo.id as string
                   const isOpen = expandedId === id
-                  const { valorNum, edadDias } = calcularResistencia(muestreo)
+                  const { valorNum, edadDias, porcentajeCumplimiento, conFactorCorreccion } =
+                    calcularResistencia(muestreo)
                   const fc = muestreo.remision?.recipe?.strength_fc ?? null
-                  const compliance = computeResistanceCompliance(valorNum, fc)
                   const { dots, nextPendingFecha } = computeSpecimenDots(muestreo)
                   const clientName =
                     muestreo.remision?.orders?.clients?.business_name ||
@@ -790,12 +790,22 @@ export default function MuestreosListClient() {
                               <span
                                 className={cn(
                                   'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-mono tabular-nums',
-                                  resistanceComplianceClass(compliance)
+                                  resistanceDisplayClass()
                                 )}
                               >
                                 {valorNum}/{fc ?? '—'}
                               </span>
                               <span className="text-[10px] text-stone-500">kg/cm²</span>
+                              {porcentajeCumplimiento != null && (
+                                <span className="text-[10px] font-medium text-stone-700 tabular-nums">
+                                  {formatPorcentajeCumplimiento(porcentajeCumplimiento)} cumpl.
+                                </span>
+                              )}
+                              {conFactorCorreccion != null && (
+                                <span className="text-[10px] text-stone-500">
+                                  {conFactorCorreccion ? 'Con factor' : 'Sin factor'}
+                                </span>
+                              )}
                               {edadDias != null && (
                                 <span className="text-[10px] text-stone-400">{edadDias}d</span>
                               )}
