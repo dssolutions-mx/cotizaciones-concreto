@@ -33,6 +33,11 @@ import type {
 import type { ArkikConsumoComparisonResult } from '@/lib/inventory/arkikConsumoComparator'
 import type { ArkikRegresoComparisonResult } from '@/lib/inventory/arkikRegresoProveedorComparator'
 import { formatArkikQtyWithKg } from '@/lib/inventory/arkikUnitConversion'
+import type { ArkikParseMeta } from '@/lib/inventory/arkikMaterialMovementsParser'
+import {
+  buildArkikCategoryRows,
+  formatArkikByTipoLine,
+} from '@/lib/inventory/arkikParseMetaDisplay'
 import { adjustmentTypeLabelEs } from '@/lib/inventory/adjustmentModel'
 import { FileSpreadsheet, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -76,10 +81,7 @@ export default function ArkikEntriesComparator() {
   const [dateTo, setDateTo] = useState(mb.to)
   const [comparing, setComparing] = useState(false)
   const [result, setResult] = useState<ArkikReconciliationResult | null>(null)
-  const [parseMeta, setParseMeta] = useState<{
-    total_movements: number
-    by_tipo: Record<string, number>
-  } | null>(null)
+  const [parseMeta, setParseMeta] = useState<ArkikParseMeta | null>(null)
   const [lastFileName, setLastFileName] = useState<string | null>(null)
 
   const runComparison = useCallback(async () => {
@@ -122,7 +124,7 @@ export default function ArkikEntriesComparator() {
       setResult(json.data as ArkikReconciliationResult)
       setParseMeta(
         json.parse_meta && typeof json.parse_meta === 'object'
-          ? (json.parse_meta as { total_movements: number; by_tipo: Record<string, number> })
+          ? (json.parse_meta as ArkikParseMeta)
           : null
       )
       setLastFileName(json.file_name ?? file.name)
@@ -205,10 +207,12 @@ export default function ArkikEntriesComparator() {
           Conciliar movimientos Arkik
         </h1>
         <p className="text-sm text-stone-600 mt-1 max-w-2xl">
-          Cargue <strong>Movimientos de Material</strong> de Arkik. Incluye entradas{' '}
-          <strong>con y sin remisión</strong> (el comentario junto a la fecha se muestra en tablas),
-          consumos, y regreso a proveedor. Las cantidades Arkik usan la unidad del bloque (p. ej.{' '}
-          <strong>T</strong> → kg) antes de comparar.
+          Cargue <strong>Movimientos de Material</strong> de Arkik. Tras cargar verá el desglose por
+          tipo (Entrada, Entrada por Ajuste, Consumo, Salida por Ajuste, Regreso a proveedor).{' '}
+          <strong>Consumo con remisión</strong> no se concilia aquí (ya está en remisiones); solo{' '}
+          consumo <strong>sin remisión</strong>, salidas por ajuste y regresos frente a{' '}
+          <strong>ajustes negativos</strong>. Entradas y entradas por ajuste frente a entradas y{' '}
+          <strong>ajustes positivos</strong>.
         </p>
         <p className="text-xs text-stone-500 mt-1">
           Planta: {currentPlant.name}
@@ -296,22 +300,19 @@ export default function ArkikEntriesComparator() {
               {lastFileName ? (
                 <p className="text-xs mt-1 opacity-80">Archivo: {lastFileName}</p>
               ) : null}
-              {parseMeta && parseMeta.total_movements > 0 ? (
-                <p className="text-xs mt-1 opacity-80">
-                  Movimientos leídos en Excel: {parseMeta.total_movements} (
-                  {Object.entries(parseMeta.by_tipo)
-                    .map(([tipo, n]) => `${tipo}: ${n}`)
-                    .join(' · ')}
-                  )
-                </p>
-              ) : null}
             </div>
           </div>
 
+          {parseMeta && parseMeta.total_movements > 0 ? (
+            <ArkikMovementCategories meta={parseMeta} />
+          ) : null}
+
           <Tabs defaultValue="remision" className="w-full">
             <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
-              <TabsTrigger value="remision">Con remisión (entradas)</TabsTrigger>
-              <TabsTrigger value="consumo">Consumos sin remisión</TabsTrigger>
+              <TabsTrigger value="remision">Entradas (con remisión)</TabsTrigger>
+              <TabsTrigger value="consumo">
+                Ajustes negativos ({parseMeta?.en_revision.ajustes_negativos ?? 0})
+              </TabsTrigger>
               <TabsTrigger value="regreso">
                 Regreso a proveedor ({regreso.meta.excel_regreso_count})
               </TabsTrigger>
@@ -699,6 +700,55 @@ function RemisionReconciliationPanel({
   )
 }
 
+function ArkikMovementCategories({ meta }: { meta: ArkikParseMeta }) {
+  const rows = buildArkikCategoryRows(meta)
+  const line = formatArkikByTipoLine(meta)
+
+  return (
+    <Card className="border-violet-200 bg-violet-50/30">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">Tipos de movimiento en el Excel</CardTitle>
+        <CardDescription className="font-mono text-xs break-words">{line}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2 pt-0">
+        <p className="text-xs text-stone-600">
+          Total filas: {meta.total_movements} · En revisión: {meta.en_revision.entradas} entradas
+          · {meta.en_revision.ajustes_negativos} ajustes negativos
+          {meta.consumo_con_remision > 0
+            ? ` · ${meta.consumo_con_remision} consumos con remisión excluidos`
+            : ''}
+        </p>
+        <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {rows.map((row) => (
+            <li
+              key={row.tipo}
+              className={cn(
+                'rounded-md border px-3 py-2 text-sm',
+                row.revisar ? 'border-stone-200 bg-white' : 'border-stone-100 bg-stone-50/80'
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-stone-900">{row.tipo}</span>
+                <span className="tabular-nums text-stone-700">{row.count}</span>
+              </div>
+              <p className="text-xs text-stone-500 mt-1 leading-snug">{row.hint}</p>
+              {!row.revisar && row.tipo === 'Consumo' ? (
+                <Badge variant="secondary" className="mt-1.5 text-[10px]">
+                  No requiere revisión (con remisión)
+                </Badge>
+              ) : row.revisar ? (
+                <Badge variant="outline" className="mt-1.5 text-[10px] border-violet-300 text-violet-800">
+                  Revisar en pestañas
+                </Badge>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  )
+}
+
 function ConsumoReconciliationPanel({
   consumo,
   summaryRows,
@@ -714,10 +764,9 @@ function ConsumoReconciliationPanel({
   return (
     <>
       <p className="text-sm text-stone-600">
-        Incluye <strong>Consumo</strong> y <strong>Salida por Ajuste</strong> del Excel, comparados
-        con <strong>ajustes negativos</strong> sin remisión en referencia. Clave: material + fecha +
-        cantidad en <strong>kg</strong>. El <strong>comentario</strong> es la columna después de
-        «Fecha de creación».
+        <strong>Consumo sin remisión</strong> y <strong>Salida por Ajuste</strong> del Excel, frente a{' '}
+        <strong>ajustes negativos</strong> en sistema. El consumo <strong>con remisión</strong> no
+        aparece aquí. Clave: material + fecha + cantidad en <strong>kg</strong>.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-3">

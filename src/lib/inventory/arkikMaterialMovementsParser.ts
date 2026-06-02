@@ -75,15 +75,29 @@ export type ArkikExcelRegresoProveedor = {
   notas: string;
 };
 
+/** Resumen de filas Arkik por tipo y qué vías de conciliación aplican. */
+export type ArkikParseMeta = {
+  total_movements: number;
+  /** Conteo por etiqueta Arkik (todas las filas). */
+  by_tipo: Record<string, number>;
+  /** Consumo con remisión: ya ligado en sistema, no se concilia aquí. */
+  consumo_con_remision: number;
+  consumo_sin_remision: number;
+  /** Filas que entran a revisión en la UI. */
+  en_revision: {
+    entradas: number;
+    ajustes_negativos: number;
+  };
+};
+
 export type ArkikParseResult = {
   entradas: ArkikExcelEntry[];
   entradas_sin_remision: ArkikExcelEntradaSinRemision[];
+  /** Consumo sin remisión + Salida por Ajuste → ajustes negativos. */
   consumos_sin_remision: ArkikExcelConsumo[];
+  salidas_por_ajuste: ArkikExcelConsumo[];
   regresos_proveedor: ArkikExcelRegresoProveedor[];
-  meta: {
-    total_movements: number;
-    by_tipo: Record<string, number>;
-  };
+  meta: ArkikParseMeta;
 };
 
 /** @deprecated Use ArkikSectionColumnMap */
@@ -175,6 +189,14 @@ export function isArkikEntradaMovementType(movementType: string): boolean {
 export function isArkikConsumoMovementType(movementType: string): boolean {
   const c = canonicalArkikMovementType(movementType);
   return c === 'Consumo' || c === 'Salida por Ajuste';
+}
+
+export function isArkikPureConsumoMovementType(movementType: string): boolean {
+  return canonicalArkikMovementType(movementType) === 'Consumo';
+}
+
+export function isArkikSalidaPorAjusteMovementType(movementType: string): boolean {
+  return canonicalArkikMovementType(movementType) === 'Salida por Ajuste';
 }
 
 export function isArkikRegresoProveedorMovementType(movementType: string): boolean {
@@ -334,6 +356,26 @@ function pushEntrada(
   }
 }
 
+function emptyMeta(): ArkikParseMeta {
+  return {
+    total_movements: 0,
+    by_tipo: {},
+    consumo_con_remision: 0,
+    consumo_sin_remision: 0,
+    en_revision: { entradas: 0, ajustes_negativos: 0 },
+  };
+}
+
+function refreshEnRevisionCounts(buckets: ArkikParseResult) {
+  buckets.meta.en_revision = {
+    entradas: buckets.entradas.length + buckets.entradas_sin_remision.length,
+    ajustes_negativos:
+      buckets.consumos_sin_remision.length +
+      buckets.salidas_por_ajuste.length +
+      buckets.regresos_proveedor.length,
+  };
+}
+
 function routeMovement(
   buckets: ArkikParseResult,
   ctx: MovementBase & { remisionRaw: string }
@@ -347,6 +389,7 @@ function routeMovement(
 
   if (isArkikEntradaMovementType(movementType)) {
     if (cantidad > 0) pushEntrada(buckets, ctx, remisionRaw);
+    refreshEnRevisionCounts(buckets);
     return;
   }
 
@@ -355,11 +398,24 @@ function routeMovement(
       ...ctx,
       remision: remisionRaw,
     });
+    refreshEnRevisionCounts(buckets);
     return;
   }
 
-  if (isArkikConsumoMovementType(movementType) && cantidad > 0) {
-    buckets.consumos_sin_remision.push(ctx);
+  if (isArkikPureConsumoMovementType(movementType) && cantidad > 0) {
+    if (arkikRowHasRemision(remisionRaw)) {
+      buckets.meta.consumo_con_remision += 1;
+    } else {
+      buckets.consumos_sin_remision.push(ctx);
+      buckets.meta.consumo_sin_remision += 1;
+    }
+    refreshEnRevisionCounts(buckets);
+    return;
+  }
+
+  if (isArkikSalidaPorAjusteMovementType(movementType) && cantidad > 0) {
+    buckets.salidas_por_ajuste.push(ctx);
+    refreshEnRevisionCounts(buckets);
   }
 }
 
@@ -375,8 +431,9 @@ export function parseArkikMaterialMovementsWorkbook(
     entradas: [],
     entradas_sin_remision: [],
     consumos_sin_remision: [],
+    salidas_por_ajuste: [],
     regresos_proveedor: [],
-    meta: { total_movements: 0, by_tipo: {} },
+    meta: emptyMeta(),
   };
 
   const sheet = workbook.Sheets[workbook.SheetNames[sheetIndex]];
@@ -399,8 +456,9 @@ export function parseArkikMaterialMovementsWorkbook(
     entradas: [],
     entradas_sin_remision: [],
     consumos_sin_remision: [],
+    salidas_por_ajuste: [],
     regresos_proveedor: [],
-    meta: { total_movements: 0, by_tipo: {} },
+    meta: emptyMeta(),
   };
 
   for (const row of rows) {

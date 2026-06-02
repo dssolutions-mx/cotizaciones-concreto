@@ -141,8 +141,12 @@ export async function POST(request: NextRequest) {
       adjustmentsResult.positive_with_remision,
       adjustmentsResult.positive_without_remision
     );
+    const excelNegativos = [
+      ...enriched.consumos_sin_remision,
+      ...enriched.salidas_por_ajuste,
+    ];
     const consumoSinRemision = compareArkikConsumosSinRemision(
-      enriched.consumos_sin_remision,
+      excelNegativos,
       adjustmentsResult.negative_without_remision,
       adjustmentsResult.negative_with_remision
     );

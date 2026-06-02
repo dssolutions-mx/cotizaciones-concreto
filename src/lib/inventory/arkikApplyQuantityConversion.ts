@@ -39,6 +39,7 @@ type ArkikParseResultEnrichedBuckets = {
   entradas: ArkikExcelEntryEnriched[];
   entradas_sin_remision: ArkikExcelEntradaSinRemisionEnriched[];
   consumos_sin_remision: ArkikExcelConsumoEnriched[];
+  salidas_por_ajuste: ArkikExcelConsumoEnriched[];
   regresos_proveedor: ArkikExcelRegresoProveedorEnriched[];
 };
 
@@ -62,6 +63,7 @@ export function applyArkikQuantityConversion(
     entradas: parsed.entradas.map((e) => enrichEntry(e, uomMap)),
     entradas_sin_remision: parsed.entradas_sin_remision.map((e) => enrichEntry(e, uomMap)),
     consumos_sin_remision: parsed.consumos_sin_remision.map((c) => enrichEntry(c, uomMap)),
+    salidas_por_ajuste: parsed.salidas_por_ajuste.map((c) => enrichEntry(c, uomMap)),
     regresos_proveedor: parsed.regresos_proveedor.map((r) => enrichEntry(r, uomMap)),
     meta: parsed.meta,
   };
