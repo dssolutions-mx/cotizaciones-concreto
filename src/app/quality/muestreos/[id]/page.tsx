@@ -298,8 +298,9 @@ export default function MuestreoDetailPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="general" className="mt-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <TabsContent value="general" className="mt-6 space-y-6">
+          {/* Identificación: datos del muestreo + resumen de muestras (altura similar) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <MuestreoMainCard
                 muestreo={muestreo}
@@ -313,42 +314,45 @@ export default function MuestreoDetailPage() {
                 onRevenimientoSaved={() => void fetchMuestreoDetails()}
               />
             </div>
-
-            <div className="space-y-6">
-              <MuestreoFieldMeasurementsCard
-                muestreoId={muestreo.id}
-                muestreo={muestreo}
-                canEdit={canEditMuestreoEquipment}
-                onSaved={() => void fetchMuestreoDetails()}
-                initialGrouped={detailBundle?.medicionesCampoGrouped}
-                initialPublishedUncertainty={detailBundle?.publishedUncertainty}
-              />
-              <MuestreoEnvironmentalCard muestreo={muestreo} />
-              <MuestreoSampleSummaryCard
-                muestreo={muestreo}
-                cilindros={cilindros.length}
-                vigas={vigas.length}
-                cubos={cubos.length}
-                cilindrosEnsayados={cilindros.filter((c) => c.estado === 'ENSAYADO').length}
-                vigasEnsayadas={vigas.filter((v) => v.estado === 'ENSAYADO').length}
-                cubosEnsayados={cubos.filter((c) => c.estado === 'ENSAYADO').length}
-                firstEnsayoId={firstEnsayoId}
-              />
-              <MuestreoInformeFieldsCard muestreo={muestreo} onSaved={() => void fetchMuestreoDetails()} />
-              <InformeEmissionPanel
-                muestreo={muestreo}
-                ensayoHasEquipment={ensayoHasEquipment}
-                initialInforme={detailBundle?.informe}
-                onRefresh={() => void fetchMuestreoDetails()}
-              />
-            </div>
-
-            {productionRemision && (
-              <div className="lg:col-span-3">
-                <CrossPlantProductionCard productionRemision={productionRemision} />
-              </div>
-            )}
+            <MuestreoSampleSummaryCard
+              muestreo={muestreo}
+              cilindros={cilindros.length}
+              vigas={vigas.length}
+              cubos={cubos.length}
+              cilindrosEnsayados={cilindros.filter((c) => c.estado === 'ENSAYADO').length}
+              vigasEnsayadas={vigas.filter((v) => v.estado === 'ENSAYADO').length}
+              cubosEnsayados={cubos.filter((c) => c.estado === 'ENSAYADO').length}
+              firstEnsayoId={firstEnsayoId}
+            />
           </div>
+
+          {/* Mediciones de campo: ancho compartido en lugar de columna lateral alta */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <MuestreoFieldMeasurementsCard
+              muestreoId={muestreo.id}
+              muestreo={muestreo}
+              canEdit={canEditMuestreoEquipment}
+              onSaved={() => void fetchMuestreoDetails()}
+              initialGrouped={detailBundle?.medicionesCampoGrouped}
+              initialPublishedUncertainty={detailBundle?.publishedUncertainty}
+            />
+            <MuestreoEnvironmentalCard muestreo={muestreo} />
+          </div>
+
+          {/* Informe acreditado: formulario §2 y emisión en paralelo */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <MuestreoInformeFieldsCard muestreo={muestreo} onSaved={() => void fetchMuestreoDetails()} />
+            <InformeEmissionPanel
+              muestreo={muestreo}
+              ensayoHasEquipment={ensayoHasEquipment}
+              initialInforme={detailBundle?.informe}
+              onRefresh={() => void fetchMuestreoDetails()}
+            />
+          </div>
+
+          {productionRemision && (
+            <CrossPlantProductionCard productionRemision={productionRemision} />
+          )}
 
           <MuestreoEquipmentCard
             rows={emaInstrumentos}
