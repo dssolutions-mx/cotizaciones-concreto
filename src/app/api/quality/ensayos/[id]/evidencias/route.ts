@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClientForApi, isUsingFallbackEnv } from '@/lib/supabase/api'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import {
+  evidenciaStorageDeleteTargets,
   evidenciaStoragePath,
+  evidenciaStorageUploadAttempts,
   isEnsayoImageFile,
   isEnsayoSr3File,
+  isStorageNotFoundError,
 } from '@/lib/quality/ensayoEvidence'
 
 const NO_STORE = { 'Cache-Control': 'no-store' as const }
@@ -16,10 +19,7 @@ async function uploadToStorage(
   path: string,
   file: File
 ): Promise<{ ok: true; dbPath: string } | { ok: false; error: string }> {
-  const attempts: { bucket: 'evidencia-ensayos' | 'quality'; storagePath: string; dbPath: string }[] = [
-    { bucket: 'evidencia-ensayos', storagePath: path, dbPath: path },
-    { bucket: 'quality', storagePath: `evidencias/${path}`, dbPath: `evidencias/${path}` },
-  ]
+  const attempts = evidenciaStorageUploadAttempts(path)
 
   let lastError = 'No se pudo subir el archivo'
   for (const { bucket, storagePath, dbPath } of attempts) {
@@ -32,13 +32,69 @@ async function uploadToStorage(
     }
     lastError = error.message || lastError
     const msg = error.message || ''
-    const notFound =
-      msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('does not exist')
-    if (!notFound) {
+    if (!isStorageNotFoundError(msg)) {
       return { ok: false, error: msg }
     }
   }
   return { ok: false, error: lastError }
+}
+
+async function removeEvidenciaFromStorage(
+  admin: ReturnType<typeof createAdminClientForApi>,
+  dbPath: string
+): Promise<void> {
+  for (const { bucket, storagePath } of evidenciaStorageDeleteTargets(dbPath)) {
+    const { error } = await admin.storage.from(bucket).remove([storagePath])
+    if (!error) return
+    if (!isStorageNotFoundError(error.message || '')) {
+      console.warn(`[ensayo evidencias DELETE] storage ${bucket}:`, error.message)
+    }
+  }
+}
+
+async function authorizeEvidenciaWrite(): Promise<
+  | { ok: true; userId: string }
+  | { ok: false; response: NextResponse }
+> {
+  const authClient = await createServerSupabaseClient()
+  const {
+    data: { user },
+    error: authError,
+  } = await authClient.auth.getUser()
+  if (authError || !user) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE }),
+    }
+  }
+
+  const { data: profile, error: profileError } = await authClient
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (profileError || !profile || !WRITE_ROLES.includes(profile.role as string)) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'Insufficient permissions' },
+        { status: 403, headers: NO_STORE }
+      ),
+    }
+  }
+
+  if (isUsingFallbackEnv) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'Supabase credentials not configured' },
+        { status: 500, headers: NO_STORE }
+      ),
+    }
+  }
+
+  return { ok: true, userId: user.id }
 }
 
 export async function POST(
@@ -51,28 +107,8 @@ export async function POST(
       return NextResponse.json({ error: 'Missing ensayo id' }, { status: 400, headers: NO_STORE })
     }
 
-    const authClient = await createServerSupabaseClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await authClient.auth.getUser()
-    if (authError || !user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE })
-    }
-
-    const { data: profile, error: profileError } = await authClient
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (profileError || !profile || !WRITE_ROLES.includes(profile.role as string)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403, headers: NO_STORE })
-    }
-
-    if (isUsingFallbackEnv) {
-      return NextResponse.json({ error: 'Supabase credentials not configured' }, { status: 500, headers: NO_STORE })
-    }
+    const auth = await authorizeEvidenciaWrite()
+    if (!auth.ok) return auth.response
 
     const formData = await request.formData()
     const file = formData.get('file')
@@ -126,7 +162,7 @@ export async function POST(
         nombre_archivo: file.name,
         tipo_archivo: tipoArchivo,
         tamano_kb: Math.max(1, Math.round(file.size / 1024)),
-        created_by: user.id,
+        created_by: auth.userId,
       })
       .select()
       .single()
@@ -139,6 +175,55 @@ export async function POST(
     return NextResponse.json({ evidencia }, { headers: NO_STORE })
   } catch (e) {
     console.error('[ensayo evidencias POST]', e)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: NO_STORE })
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: ensayoId } = await params
+    if (!ensayoId) {
+      return NextResponse.json({ error: 'Missing ensayo id' }, { status: 400, headers: NO_STORE })
+    }
+
+    const evidenciaId = request.nextUrl.searchParams.get('evidencia_id')?.trim()
+    if (!evidenciaId) {
+      return NextResponse.json({ error: 'Se requiere evidencia_id' }, { status: 400, headers: NO_STORE })
+    }
+
+    const auth = await authorizeEvidenciaWrite()
+    if (!auth.ok) return auth.response
+
+    const admin = createAdminClientForApi()
+    const { data: evidencia, error: findError } = await admin
+      .from('evidencias')
+      .select('id, path')
+      .eq('id', evidenciaId)
+      .eq('ensayo_id', ensayoId)
+      .maybeSingle()
+
+    if (findError || !evidencia) {
+      return NextResponse.json({ error: 'Evidencia no encontrada' }, { status: 404, headers: NO_STORE })
+    }
+
+    const dbPath = evidencia.path as string
+    if (dbPath) {
+      await removeEvidenciaFromStorage(admin, dbPath)
+    }
+
+    const { error: deleteError } = await admin.from('evidencias').delete().eq('id', evidenciaId)
+
+    if (deleteError) {
+      console.error('[ensayo evidencias DELETE] db:', deleteError)
+      return NextResponse.json({ error: 'Error al eliminar evidencia' }, { status: 500, headers: NO_STORE })
+    }
+
+    return NextResponse.json({ success: true }, { headers: NO_STORE })
+  } catch (e) {
+    console.error('[ensayo evidencias DELETE]', e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: NO_STORE })
   }
 }

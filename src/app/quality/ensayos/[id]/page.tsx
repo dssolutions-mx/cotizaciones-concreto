@@ -40,6 +40,7 @@ import {
   ArrowUpRight,
 } from 'lucide-react'
 import {
+  deleteEnsayoEvidencia,
   fetchEnsayoById,
   syncEnsayoSpecFromMuestra,
   updateEnsayoById,
@@ -536,6 +537,15 @@ export default function EnsayoDetailPage() {
 
       <EnsayoEvidenceGallery
         evidencias={evidenciasNorm}
+        canDelete={canPatchEnsayo}
+        onDelete={
+          ensayo && canPatchEnsayo
+            ? async (evidenciaId) => {
+                await deleteEnsayoEvidencia(ensayo.id, evidenciaId)
+                await reload()
+              }
+            : undefined
+        }
         uploadSlot={
           canPatchEnsayo && ensayo ? (
             <EnsayoEvidenceUploadSection ensayoId={ensayo.id} onUploaded={reload} />

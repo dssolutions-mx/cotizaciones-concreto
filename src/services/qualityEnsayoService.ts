@@ -253,6 +253,26 @@ export async function uploadEnsayoEvidencias(
   return result;
 }
 
+export async function deleteEnsayoEvidencia(
+  ensayoId: string,
+  evidenciaId: string
+): Promise<void> {
+  const res = await fetch(
+    `/api/quality/ensayos/${ensayoId}/evidencias?evidencia_id=${encodeURIComponent(evidenciaId)}`,
+    { method: 'DELETE' }
+  );
+  if (!res.ok) {
+    let msg = 'Error al eliminar evidencia';
+    try {
+      const j = await res.json();
+      if (typeof j.error === 'string') msg = j.error;
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg);
+  }
+}
+
 /** Re-resolve correction spec from current muestra dimensions (fixes stale ensayo rows). */
 export async function syncEnsayoSpecFromMuestra(ensayoId: string, muestra: MuestraSpecDims) {
   const { data, error } = await supabase.rpc('resolve_specimen_type_spec', rpcArgsForMuestraSpec(muestra));

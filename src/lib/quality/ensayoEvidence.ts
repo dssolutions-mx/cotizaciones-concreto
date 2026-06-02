@@ -20,6 +20,54 @@ export function evidenciaStoragePath(
   return `${ensayoId}/${prefix}/${Date.now()}_${safeName}`
 }
 
+export type EvidenciaStorageBucket = 'evidencia-ensayos' | 'quality' | 'quality-evidencias'
+
+/** Primary storage location for a DB `path` value (matches successful upload target). */
+export function resolveEvidenciaStorageTarget(dbPath: string): {
+  bucket: EvidenciaStorageBucket
+  storagePath: string
+} {
+  if (dbPath.startsWith('evidencias/')) {
+    return { bucket: 'quality', storagePath: dbPath }
+  }
+  return { bucket: 'evidencia-ensayos', storagePath: dbPath }
+}
+
+/** Upload tries primary bucket first, then legacy `quality` prefix path. */
+export function evidenciaStorageUploadAttempts(relativePath: string): {
+  bucket: 'evidencia-ensayos' | 'quality'
+  storagePath: string
+  dbPath: string
+}[] {
+  return [
+    { bucket: 'evidencia-ensayos', storagePath: relativePath, dbPath: relativePath },
+    {
+      bucket: 'quality',
+      storagePath: `evidencias/${relativePath}`,
+      dbPath: `evidencias/${relativePath}`,
+    },
+  ]
+}
+
+/** Delete targets: primary path plus legacy bucket when applicable. */
+export function evidenciaStorageDeleteTargets(dbPath: string): {
+  bucket: EvidenciaStorageBucket
+  storagePath: string
+}[] {
+  const targets = [resolveEvidenciaStorageTarget(dbPath)]
+  if (dbPath.startsWith('evidencias/')) {
+    targets.push({ bucket: 'quality-evidencias', storagePath: dbPath })
+  }
+  return targets
+}
+
+function isStorageNotFoundError(message: string): boolean {
+  const msg = message.toLowerCase()
+  return msg.includes('not found') || msg.includes('does not exist')
+}
+
+export { isStorageNotFoundError }
+
 export function evidenciaPublicUrl(path: string): string {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
   if (!path) return ''
