@@ -41,6 +41,7 @@ import {
   formatArkikByTipoLine,
 } from '@/lib/inventory/arkikParseMetaDisplay'
 import { adjustmentTypeLabelEs } from '@/lib/inventory/adjustmentModel'
+import ArkikConsumptionSyncTool from '@/components/inventory/ArkikConsumptionSyncTool'
 import {
   FileSpreadsheet,
   Loader2,
@@ -427,7 +428,14 @@ export default function ArkikEntriesComparator({
             </TabsContent>
 
             <TabsContent value="consumo_remision" className="space-y-6 mt-0">
-              <ConsumoRemisionPanel consumoRem={consumoRem} summaryRows={consumoRemSummaryRows} />
+              <ConsumoRemisionPanel
+                consumoRem={consumoRem}
+                summaryRows={consumoRemSummaryRows}
+                plantId={currentPlant.id}
+                dateFrom={dateFrom}
+                dateTo={dateTo}
+                onSynced={runComparison}
+              />
             </TabsContent>
 
             <TabsContent value="consumo" className="space-y-6 mt-0">
@@ -992,12 +1000,20 @@ function ArkikMovementCategories({
 function ConsumoRemisionPanel({
   consumoRem,
   summaryRows,
+  plantId,
+  dateFrom,
+  dateTo,
+  onSynced,
 }: {
   consumoRem: ArkikConsumoRemisionComparisonResult
   summaryRows: [
     string,
     { matched: number; only_excel: number; only_db: number; with_qty_diff: number },
   ][]
+  plantId: string
+  dateFrom: string
+  dateTo: string
+  onSynced: () => void
 }) {
   const matchedCount = consumoRem.matched.length
   const onlyExcelCount = consumoRem.only_excel.length
@@ -1007,6 +1023,14 @@ function ConsumoRemisionPanel({
 
   return (
     <>
+      <ArkikConsumptionSyncTool
+        plantId={plantId}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        consumoRem={consumoRem}
+        onApplied={onSynced}
+      />
+
       <p className="text-sm text-stone-600">
         Movimientos Arkik <strong>Consumo</strong> con remisión en columna, frente a{' '}
         <strong>remision_materiales</strong> del sistema. Clave: material + remisión normalizada
