@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import { Beaker, FlaskConical, ClipboardCheck, Clipboard, Activity, Clock, Award, TestTube2 } from 'lucide-react'
+import { Beaker, FlaskConical, ClipboardCheck, Clipboard, Activity, Clock, Award, TestTube2, Search } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
 import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import QualityHubLayout from '@/components/quality/QualityHubLayout'
@@ -99,6 +99,13 @@ export default function OperacionesHub() {
       IconComponent: Beaker,
       color: 'sky',
       featured: true,
+    },
+    {
+      title: 'Consulta de remisiones',
+      description: 'Buscar una remisión y ver muestreo, cliente y materiales',
+      href: '/quality/consulta-remisiones',
+      IconComponent: Search,
+      color: 'sky',
     },
     {
       title: 'Ensayos',

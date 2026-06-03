@@ -11,7 +11,7 @@ import {
   BreadcrumbLink,
   BreadcrumbPage,
 } from '@/components/ui/breadcrumb'
-import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus, FileText } from 'lucide-react'
+import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus, FileText, Search } from 'lucide-react'
 
 interface BreadcrumbRouteItem {
   label: string
@@ -104,6 +104,14 @@ const inventoryRoutes: Record<string, BreadcrumbRouteItem[]> = {
   '/production-control/inventory-closure': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Cierre de inventario', href: '/production-control/inventory-closure', icon: ClipboardPlus }
+  ],
+  '/production-control/consulta-remisiones': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Consulta de remisiones', href: '/production-control/consulta-remisiones', icon: Search }
+  ],
+  '/production-control/remisiones': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Registro de remisiones', href: '/production-control/remisiones', icon: FileText }
   ],
 }
 

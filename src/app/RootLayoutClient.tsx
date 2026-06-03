@@ -345,6 +345,11 @@ const QUALITY_SECTIONS: QualitySection[] = [
     IconComponent: Clipboard,
     items: [
       { title: 'Muestreos', href: '/quality/muestreos', IconComponent: Beaker },
+      {
+        title: 'Consulta de remisiones',
+        href: '/quality/consulta-remisiones',
+        IconComponent: FileText,
+      },
       { title: 'Ensayos', href: '/quality/ensayos', IconComponent: FlaskConical },
       { title: 'Informes emitidos', href: '/quality/informes', IconComponent: Clipboard },
       { title: 'Control en obra', href: '/quality/site-checks/new', IconComponent: ClipboardCheck },

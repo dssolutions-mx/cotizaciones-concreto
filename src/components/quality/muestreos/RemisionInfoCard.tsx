@@ -3,7 +3,8 @@
 import React from "react";
 import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Truck, User, Package, Droplets, Clock, Building2, Factory } from "lucide-react";
+import { Truck, User, Package, Droplets, Clock, Building2, Factory, CalendarDays } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 const outlineBtn =
   "h-9 border-stone-300 bg-white px-3 text-sm shadow-none hover:bg-stone-50";
 
@@ -26,6 +27,17 @@ export default function RemisionInfoCard({ remision, onChange }: Props) {
       <div className="p-4 border border-stone-200 rounded-lg bg-stone-50">
         <h3 className="font-semibold text-lg mb-3 text-stone-900">Remisión #{remision.remision_number}</h3>
         <div className="space-y-3">
+          {remision.fecha && (
+            <div className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-stone-500 shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-stone-900">Fecha</p>
+                <p className="text-sm text-stone-700">
+                  {formatDate(remision.fecha, "dd/MM/yyyy")}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Truck className="h-4 w-4 text-stone-500 shrink-0" />
             <div>
