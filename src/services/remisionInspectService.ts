@@ -43,8 +43,8 @@ const DETAIL_SELECT = `
   cross_plant_billing_plant_id,
   cross_plant_billing_remision_id,
   cancelled_reason,
-  recipe:recipes(recipe_code, strength_fc, slump, tma, age_days, age_hours),
-  plants:plant_id(id, code, name),
+  recipe:recipes(recipe_code, strength_fc, slump, max_aggregate_size, age_days, age_hours),
+  plant:plants!plant_id(id, code, name),
   orders:order_id(
     id,
     order_number,
@@ -195,12 +195,12 @@ function mapDetailRemision(r: Record<string, unknown>): RemisionInspectDetailRem
       recipe_code?: string;
       strength_fc?: number;
       slump?: number;
-      tma?: number;
+      max_aggregate_size?: number;
       age_days?: number;
       age_hours?: number;
     } | null,
   );
-  const plants = unwrapOne(r.plants as { code?: string; name?: string } | null);
+  const plantRow = unwrapOne(r.plant as { code?: string; name?: string } | null);
 
   return {
     id: r.id as string,
@@ -211,7 +211,7 @@ function mapDetailRemision(r: Record<string, unknown>): RemisionInspectDetailRem
     conductor: (r.conductor as string | null) ?? null,
     unidad: (r.unidad as string | null) ?? null,
     plant_id: (r.plant_id as string | null) ?? null,
-    planta: plants?.name ?? plants?.code ?? null,
+    planta: plantRow?.name ?? plantRow?.code ?? null,
     order_id: order?.id ?? null,
     order_number: order?.order_number ?? null,
     client_name: client?.business_name ?? null,
@@ -225,12 +225,12 @@ function mapDetailRemision(r: Record<string, unknown>): RemisionInspectDetailRem
           recipe_code: recipe.recipe_code ?? null,
           strength_fc: recipe.strength_fc ?? null,
           slump: recipe.slump ?? null,
-          tma: recipe.tma ?? null,
+          tma: recipe.max_aggregate_size ?? null,
           age_days: recipe.age_days ?? null,
           age_hours: recipe.age_hours ?? null,
         }
       : null,
-    plants,
+    plants: plantRow,
   };
 }
 
