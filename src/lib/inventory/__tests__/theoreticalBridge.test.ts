@@ -8,48 +8,36 @@ function baseFlow(overrides: Partial<MaterialFlowSummary> = {}): MaterialFlowSum
     material_name: 'Inclusor de aire',
     unit: 'L',
     material_code: 'A52',
-    initial_stock: 100,
-    total_entries: 10,
-    total_manual_additions: 0,
-    total_remisiones_consumption: 50,
+    initial_stock: 0,
+    total_entries: 0,
+    total_manual_additions: 20,
+    total_remisiones_consumption: 12.45,
     total_manual_withdrawals: 0,
     total_waste: 0,
-    theoretical_final_stock: 60,
-    actual_current_stock: 80,
-    variance: 20,
-    variance_percentage: 33.33,
+    theoretical_final_stock: -12.45,
+    actual_current_stock: 27,
+    variance: 39.45,
+    variance_percentage: 0,
     ...overrides,
   }
 }
 
 describe('buildTheoreticalBridgeFromFlow', () => {
-  it('adds ledger period positive adjustments omitted from dashboard flow', () => {
-    const flow = baseFlow({
-      total_manual_additions: 0,
-      theoretical_final_stock: 60,
-    })
+  it('uses ledger adjustments in the bridge even when flow.theoretical_final_stock is stale', () => {
+    const flow = baseFlow()
     const bridge = buildTheoreticalBridgeFromFlow(flow, {
-      adj_positive_kg: 25,
+      adj_positive_kg: 20,
       adj_negative_abs_kg: 0,
     })
-    expect(bridge.period_adjustments_positive_kg).toBe(25)
-    expect(bridge.theoretical_final_kg).toBe(85)
-    expect(bridge.initial_stock_kg).toBe(100)
-    expect(
-      bridge.initial_stock_kg +
-        bridge.period_entries_kg +
-        bridge.period_adjustments_positive_kg -
-        bridge.period_adjustments_negative_kg -
-        bridge.period_consumption_kg -
-        bridge.period_waste_kg,
-    ).toBe(bridge.theoretical_final_kg)
+    expect(bridge.period_adjustments_positive_kg).toBe(20)
+    expect(bridge.theoretical_final_kg).toBeCloseTo(7.55, 2)
+    expect(bridge.initial_stock_kg).toBe(0)
   })
 
-  it('uses flow columns arithmetically when no ledger override', () => {
-    const flow = baseFlow({ initial_stock: 200, total_manual_additions: 5 })
+  it('uses flow columns when no ledger override', () => {
+    const flow = baseFlow({ initial_stock: 100, total_manual_additions: 5, theoretical_final_stock: 60 })
     const bridge = buildTheoreticalBridgeFromFlow(flow)
-    expect(bridge.initial_stock_kg).toBe(200)
-    expect(bridge.theoretical_final_kg).toBe(165)
+    expect(bridge.theoretical_final_kg).toBeCloseTo(92.55, 2)
     expect(bridge.adjustments_from_ledger_audit).toBe(false)
   })
 })
