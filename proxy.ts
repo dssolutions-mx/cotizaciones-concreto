@@ -310,6 +310,12 @@ export async function proxy(request: NextRequest) {
 
       // QUALITY_TEAM can only access quality module and profile/auth pages
       if (role === 'QUALITY_TEAM') {
+        if (pathname === '/admin/materials' || pathname.startsWith('/admin/materials/')) {
+          const redirectUrl = request.nextUrl.clone();
+          redirectUrl.pathname = '/quality/catalogo-materiales';
+          return NextResponse.redirect(redirectUrl);
+        }
+
         const restrictedPaths = [
           '/dashboard',
           '/prices',

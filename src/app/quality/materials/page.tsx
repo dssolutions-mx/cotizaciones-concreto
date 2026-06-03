@@ -6,7 +6,7 @@ import { QualityBreadcrumb } from '@/components/quality/QualityBreadcrumb'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-import { Search, AlertTriangle, Loader2, ExternalLink, Package, Activity, CheckCircle, XCircle } from 'lucide-react'
+import { Search, AlertTriangle, Loader2, Package, Activity, CheckCircle, XCircle } from 'lucide-react'
 import { qualityHubSummaryStatusMap } from '@/components/quality/qualityHubUi'
 import { usePlantContext } from '@/contexts/PlantContext'
 import MaterialTrendCard from '@/components/quality/materials/MaterialTrendCard'
@@ -153,11 +153,11 @@ export default function MaterialControlCenterPage() {
             Costos de materiales
           </Link>
           <Link
-            href="/admin/materials"
+            href="/quality/catalogo-materiales"
             className="text-xs text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1"
           >
             <Activity className="h-3.5 w-3.5" />
-            Gestionar catálogo <ExternalLink className="h-3 w-3" />
+            Gestionar catálogo
           </Link>
         </div>
       </div>

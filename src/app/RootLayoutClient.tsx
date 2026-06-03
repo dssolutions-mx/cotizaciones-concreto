@@ -380,6 +380,12 @@ const QUALITY_SECTIONS: QualitySection[] = [
       { title: 'Caracterizaciones', href: '/quality/caracterizacion-materiales', IconComponent: FlaskConical, subGroup: 'Nuevos Materiales' },
       { title: 'Materiales', href: '/quality/materials', IconComponent: Package, subGroup: 'Nuevos Materiales' },
       {
+        title: 'Catálogo de materiales',
+        href: '/quality/catalogo-materiales',
+        IconComponent: Package,
+        subGroup: 'Nuevos Materiales',
+      },
+      {
         title: 'Costos de materiales',
         href: '/quality/materiales-costo',
         IconComponent: DollarSign,

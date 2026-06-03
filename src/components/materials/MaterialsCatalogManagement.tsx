@@ -1,0 +1,424 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { recipeService } from '@/lib/supabase/recipes';
+import { Material } from '@/types/recipes';
+import { usePlantContext } from '@/contexts/PlantContext';
+import { Plus, Edit, Trash2, Eye, Search } from 'lucide-react';
+import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import AddMaterialModal from '@/components/materials/AddMaterialModal';
+import EditMaterialModal from '@/components/materials/EditMaterialModal';
+import { showSuccess, showError } from '@/lib/utils/toast';
+import { MATERIAL_CATALOG_WRITE_ROLES } from '@/lib/auth/materialsCatalogRoles';
+
+const CATALOG_WRITE_ROLES = [...MATERIAL_CATALOG_WRITE_ROLES];
+
+type MaterialsCatalogManagementProps = {
+  title?: string;
+  className?: string;
+};
+
+export default function MaterialsCatalogManagement({
+  title = 'Gestión de Materiales',
+  className,
+}: MaterialsCatalogManagementProps) {
+  const { currentPlant } = usePlantContext();
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+  const [materialToEdit, setMaterialToEdit] = useState<Material | null>(null);
+  const [supplierLabelById, setSupplierLabelById] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    loadMaterials();
+  }, [currentPlant]);
+
+  useEffect(() => {
+    if (!currentPlant?.id) {
+      setSupplierLabelById({});
+      return;
+    }
+    (async () => {
+      try {
+        const list = await recipeService.getSuppliers(currentPlant.id);
+        const map: Record<string, string> = {};
+        list.forEach((s) => {
+          map[s.id] = `${s.provider_number} — ${s.name}`;
+        });
+        setSupplierLabelById(map);
+      } catch {
+        setSupplierLabelById({});
+      }
+    })();
+  }, [currentPlant?.id]);
+
+  const loadMaterials = async () => {
+    try {
+      setIsLoading(true);
+      const materialsData = await recipeService.getMaterials(currentPlant?.id);
+      setMaterials(materialsData);
+    } catch (loadError) {
+      console.error('Error loading materials:', loadError);
+      setError('Error al cargar los materiales');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleMaterialSuccess = () => {
+    loadMaterials();
+  };
+
+  const handleEditMaterial = (material: Material) => {
+    setMaterialToEdit(material);
+    setShowEditModal(true);
+  };
+
+  const handleDeleteMaterial = async (material: Material) => {
+    if (confirm(`¿Está seguro de que desea eliminar el material "${material.material_name}"?`)) {
+      try {
+        await recipeService.deleteMaterial(material.id);
+        showSuccess('Material eliminado exitosamente');
+        loadMaterials();
+      } catch (deleteError) {
+        console.error('Error deleting material:', deleteError);
+        showError('Error al eliminar el material');
+      }
+    }
+  };
+
+  const filteredMaterials = materials.filter((material) => {
+    const matchesSearch =
+      material.material_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      material.material_code.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = selectedCategory === 'all' || material.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const categories = Array.from(new Set(materials.map((m) => m.category)));
+
+  const getCategoryLabel = (category: string) => {
+    const labels: Record<string, string> = {
+      cemento: 'Cemento',
+      agregado: 'Agregado',
+      aditivo: 'Aditivo',
+      agua: 'Agua',
+    };
+    return labels[category] || category;
+  };
+
+  const getStatusBadge = (isActive: boolean) => {
+    return (
+      <span
+        className={`px-2 py-1 rounded text-xs font-medium ${
+          isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+        }`}
+      >
+        {isActive ? 'Activo' : 'Inactivo'}
+      </span>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <div className={className ?? 'container mx-auto p-4'}>
+        <div className="text-center">
+          <p>Cargando materiales...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className={className ?? 'container mx-auto p-4'}>
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">{error}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={className ?? 'container mx-auto p-4'}>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">{title}</h1>
+
+        <RoleProtectedButton
+          allowedRoles={CATALOG_WRITE_ROLES}
+          onClick={() => setShowAddModal(true)}
+          className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 inline-flex items-center gap-2"
+          showDisabled={true}
+          disabledMessage="Su rol no incluye alta de materiales en el catálogo"
+        >
+          <Plus size={18} />
+          Agregar Material
+        </RoleProtectedButton>
+      </div>
+
+      <div className="mb-6 bg-white p-4 rounded-lg shadow">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Buscar Materiales</label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+              <input
+                type="text"
+                placeholder="Buscar por nombre o código..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">Todas las categorías</option>
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {getCategoryLabel(category)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Material
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Código
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Categoría
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Unidad
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Estado
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredMaterials.map((material) => (
+                <tr key={material.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{material.material_name}</div>
+                      {material.subcategory && (
+                        <div className="text-sm text-gray-500">{material.subcategory}</div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {material.material_code}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {getCategoryLabel(material.category)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {material.unit_of_measure}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">{getStatusBadge(material.is_active)}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setSelectedMaterial(material)}
+                        className="text-blue-600 hover:text-blue-900"
+                        title="Ver detalles"
+                        type="button"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <RoleProtectedButton
+                        allowedRoles={CATALOG_WRITE_ROLES}
+                        onClick={() => handleEditMaterial(material)}
+                        className="text-green-600 hover:text-green-900"
+                        showDisabled={false}
+                      >
+                        <Edit size={16} />
+                      </RoleProtectedButton>
+                      <RoleProtectedButton
+                        allowedRoles={CATALOG_WRITE_ROLES}
+                        onClick={() => handleDeleteMaterial(material)}
+                        className="text-red-600 hover:text-red-900"
+                        showDisabled={false}
+                      >
+                        <Trash2 size={16} />
+                      </RoleProtectedButton>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {filteredMaterials.length === 0 && (
+          <div className="text-center py-8">
+            <p className="text-gray-500">No se encontraron materiales</p>
+          </div>
+        )}
+      </div>
+
+      {selectedMaterial && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Detalles del Material</h2>
+              <button
+                onClick={() => setSelectedMaterial(null)}
+                className="text-gray-500 hover:text-gray-700"
+                type="button"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h3 className="font-semibold text-lg mb-3">Información Básica</h3>
+                <div className="space-y-2">
+                  <p>
+                    <span className="font-medium">Nombre:</span> {selectedMaterial.material_name}
+                  </p>
+                  <p>
+                    <span className="font-medium">Código:</span> {selectedMaterial.material_code}
+                  </p>
+                  <p>
+                    <span className="font-medium">Categoría:</span> {getCategoryLabel(selectedMaterial.category)}
+                  </p>
+                  {selectedMaterial.subcategory && (
+                    <p>
+                      <span className="font-medium">Subcategoría:</span> {selectedMaterial.subcategory}
+                    </p>
+                  )}
+                  <p>
+                    <span className="font-medium">Unidad de Medida:</span> {selectedMaterial.unit_of_measure}
+                  </p>
+                  <p>
+                    <span className="font-medium">Estado:</span> {getStatusBadge(selectedMaterial.is_active)}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-semibold text-lg mb-3">Propiedades Técnicas</h3>
+                <div className="space-y-2">
+                  {selectedMaterial.density && (
+                    <p>
+                      <span className="font-medium">Densidad:</span> {selectedMaterial.density} kg/m³
+                    </p>
+                  )}
+                  {selectedMaterial.specific_gravity && (
+                    <p>
+                      <span className="font-medium">Gravedad Específica:</span>{' '}
+                      {selectedMaterial.specific_gravity}
+                    </p>
+                  )}
+                  {selectedMaterial.absorption_rate && (
+                    <p>
+                      <span className="font-medium">Absorción:</span> {selectedMaterial.absorption_rate}%
+                    </p>
+                  )}
+                  {selectedMaterial.fineness_modulus && (
+                    <p>
+                      <span className="font-medium">Módulo de Fineza:</span>{' '}
+                      {selectedMaterial.fineness_modulus}
+                    </p>
+                  )}
+                  {selectedMaterial.strength_class && (
+                    <p>
+                      <span className="font-medium">Clase de Resistencia:</span>{' '}
+                      {selectedMaterial.strength_class}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <h3 className="font-semibold text-lg mb-3">Información del Proveedor</h3>
+              <div className="space-y-2">
+                {(selectedMaterial as Material & { supplier_id?: string }).supplier_id ? (
+                  <p>
+                    <span className="font-medium">Proveedor (catálogo):</span>{' '}
+                    {supplierLabelById[(selectedMaterial as Material & { supplier_id?: string }).supplier_id!] ||
+                      (selectedMaterial as Material & { supplier_id?: string }).supplier_id}
+                  </p>
+                ) : (
+                  <p className="text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2 text-sm">
+                    Sin proveedor asignado en el catálogo. Edite el material y seleccione un proveedor.
+                  </p>
+                )}
+                {(selectedMaterial.primary_supplier || selectedMaterial.supplier_code) && (
+                  <div className="text-sm text-gray-600 border-t pt-2 mt-2">
+                    <p className="font-medium text-gray-700 mb-1">Datos heredados (texto libre)</p>
+                    {selectedMaterial.primary_supplier && (
+                      <p>
+                        <span className="font-medium">Proveedor principal (legacy):</span>{' '}
+                        {selectedMaterial.primary_supplier}
+                      </p>
+                    )}
+                    {selectedMaterial.supplier_code && (
+                      <p>
+                        <span className="font-medium">Código proveedor (legacy):</span>{' '}
+                        {selectedMaterial.supplier_code}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={() => setSelectedMaterial(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-gray-300 rounded-md hover:bg-gray-300"
+                type="button"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AddMaterialModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSuccess={handleMaterialSuccess}
+        plantId={currentPlant?.id}
+      />
+
+      <EditMaterialModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setMaterialToEdit(null);
+        }}
+        onSuccess={handleMaterialSuccess}
+        material={materialToEdit}
+      />
+    </div>
+  );
+}
