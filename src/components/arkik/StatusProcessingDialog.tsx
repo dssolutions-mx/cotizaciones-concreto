@@ -18,7 +18,7 @@ import {
   Check, Factory, Search, CheckCircle, XCircle, Loader2, Info
 } from 'lucide-react';
 import type { StagingRemision, StatusProcessingDecision, StatusProcessingAction } from '@/types/arkik';
-import { StatusProcessingAction as SPA } from '@/types/arkik';
+import { StatusProcessingAction as SPA, getTransferableMaterials } from '@/types/arkik';
 
 const formatLocalDate = (date: Date): string => {
   const year = date.getFullYear();
@@ -207,7 +207,8 @@ export default function StatusProcessingDialog({
     if (action === SPA.REASSIGN_TO_EXISTING) {
       if (!targetRemisionNumber) { alert('Selecciona una remisión destino para la reasignación'); return; }
       decision.target_remision_number = targetRemisionNumber;
-      decision.materials_to_transfer = Object.keys(materialsToTransfer).length > 0 ? materialsToTransfer : remision.materials_real;
+      decision.materials_to_transfer =
+        Object.keys(materialsToTransfer).length > 0 ? materialsToTransfer : getTransferableMaterials(remision);
     }
     if (action === SPA.MARK_AS_WASTE) {
       if (!wasteReason) { alert('Ingresa la razón del desperdicio'); return; }
@@ -237,7 +238,7 @@ export default function StatusProcessingDialog({
 
   const initializeMaterialsForTransfer = () => {
     if (remision && Object.keys(materialsToTransfer).length === 0)
-      setMaterialsToTransfer({ ...remision.materials_real });
+      setMaterialsToTransfer(getTransferableMaterials(remision));
   };
 
   const updateMaterialAmount = (code: string, amount: number) =>

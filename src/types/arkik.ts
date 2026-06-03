@@ -267,6 +267,24 @@ export interface StagingRemision {
   transferred_materials?: Record<string, number>;
 }
 
+/** Per-material total for reassignment (same rule as remision_materiales import). */
+export function getTransferableMaterials(r: StagingRemision): Record<string, number> {
+  const codes = new Set([
+    ...Object.keys(r.materials_real ?? {}),
+    ...Object.keys(r.materials_retrabajo ?? {}),
+    ...Object.keys(r.materials_manual ?? {}),
+  ]);
+  const out: Record<string, number> = {};
+  for (const code of codes) {
+    const total =
+      (r.materials_real?.[code] ?? 0) +
+      (r.materials_retrabajo?.[code] ?? 0) +
+      (r.materials_manual?.[code] ?? 0);
+    if (total > 0) out[code] = total;
+  }
+  return out;
+}
+
 export interface OrderSuggestion {
   group_key: string;
   client_id: string;

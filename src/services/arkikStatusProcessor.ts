@@ -5,7 +5,8 @@ import {
   StatusProcessingDecision, 
   StatusProcessingResult,
   WasteMaterial,
-  RemisionReassignment 
+  RemisionReassignment,
+  getTransferableMaterials,
 } from '@/types/arkik';
 
 export class ArkikStatusProcessor {
@@ -248,7 +249,8 @@ export class ArkikStatusProcessor {
     }
 
     // Create reassignment record
-    const materialsToTransfer = decision.materials_to_transfer || sourceRemision.materials_real;
+    const materialsToTransfer =
+      decision.materials_to_transfer || getTransferableMaterials(sourceRemision);
     
     // Debug: Log material quantities being transferred
     console.log(`[ArkikStatusProcessor] Reassigning materials from ${sourceRemision.remision_number} to ${targetRemision.remision_number}:`, {
