@@ -63,3 +63,15 @@ export function hasInventoryStandardAccess(role: string | undefined): boolean {
   if (!role || typeof role !== 'string') return false
   return (INVENTORY_STANDARD_ROLES as readonly string[]).includes(normalizeRoleKey(role))
 }
+
+/** Align material_inventory.current_stock to reconciled / ledger arithmetic (no adjustment rows). */
+export const DOSIFICADOR_SYNC_ROLES = [
+  'EXECUTIVE',
+  'ADMIN_OPERATIONS',
+  'PLANT_MANAGER',
+] as const
+
+export function canSyncDosificadorStock(role: string | undefined): boolean {
+  if (!role || typeof role !== 'string') return false
+  return (DOSIFICADOR_SYNC_ROLES as readonly string[]).includes(normalizeRoleKey(role))
+}

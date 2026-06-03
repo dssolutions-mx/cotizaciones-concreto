@@ -89,3 +89,34 @@ export type MaterialLedgerVarianceRow = {
   fifo_vs_stock: number | null
   pending_pricing_count: number
 }
+
+export type DosificadorSyncTargetSource = 'reconciled' | 'theoretical'
+
+export type DosificadorSyncPlanItem = {
+  material_id: string
+  material_name: string
+  material_code: string | null
+  live_stock_kg: number
+  target_stock_kg: number
+  delta_kg: number
+  target_source: DosificadorSyncTargetSource
+}
+
+export type DosificadorSyncSkippedRow = {
+  material_id: string
+  material_name: string
+  reason: string
+}
+
+export type DosificadorSyncAnalysis = {
+  plant_id: string
+  date_range: { start: string; end: string }
+  items: DosificadorSyncPlanItem[]
+  skipped: DosificadorSyncSkippedRow[]
+  already_aligned_count: number
+}
+
+export type DosificadorSyncApplyResult = {
+  updated: DosificadorSyncPlanItem[]
+  failed: Array<{ material_id: string; material_name: string; error: string }>
+}

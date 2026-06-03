@@ -36,10 +36,25 @@ import EntryPricingForm from '@/components/inventory/EntryPricingForm'
 import MaterialAdjustmentForm from '@/components/inventory/MaterialAdjustmentForm'
 import { toast } from 'sonner'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
-import { canCompleteEntryPricingReview } from '@/lib/auth/inventoryRoles'
-import type { MaterialLedgerResponse, MaterialLedgerVarianceRow } from '@/types/materialLedger'
+import { canCompleteEntryPricingReview, canSyncDosificadorStock } from '@/lib/auth/inventoryRoles'
+import type {
+  DosificadorSyncAnalysis,
+  MaterialLedgerResponse,
+  MaterialLedgerVarianceRow,
+} from '@/types/materialLedger'
 import type { MaterialEntry, InventoryMovement } from '@/types/inventory'
 import { MATERIAL_LEDGER_EPSILON_KG } from '@/types/materialLedger'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   ClipboardCopy,
   ExternalLink,
@@ -47,6 +62,7 @@ import {
   MoreHorizontal,
   RefreshCw,
   ShieldAlert,
+  Wrench,
 } from 'lucide-react'
 
 const EPS = MATERIAL_LEDGER_EPSILON_KG
@@ -104,6 +120,7 @@ export default function MaterialAuditSheet({
   const router = useRouter()
   const { profile } = useAuthSelectors()
   const canFinance = canCompleteEntryPricingReview(profile?.role)
+  const canApplyDosificadorSync = canSyncDosificadorStock(profile?.role)
   /** Dosificador: movimientos y existencias, sin montos (MXN). */
   const hideMoney = profile?.role === 'DOSIFICADOR'
 
@@ -120,6 +137,12 @@ export default function MaterialAuditSheet({
 
   const [variances, setVariances] = useState<MaterialLedgerVarianceRow[]>([])
   const [variancesLoading, setVariancesLoading] = useState(false)
+
+  const [syncAnalysis, setSyncAnalysis] = useState<DosificadorSyncAnalysis | null>(null)
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [syncApplying, setSyncApplying] = useState(false)
+  const [syncConfirmOpen, setSyncConfirmOpen] = useState(false)
+  const [syncSelectedIds, setSyncSelectedIds] = useState<Set<string>>(new Set())
 
   const [pricingEntry, setPricingEntry] = useState<MaterialEntry | null>(null)
   const [pricingLoading, setPricingLoading] = useState(false)
@@ -163,6 +186,45 @@ export default function MaterialAuditSheet({
     if (open && tab === 'variances') void loadVariances()
   }, [open, tab, loadVariances])
 
+  const syncQueryParams = useCallback(() => {
+    const params = new URLSearchParams({
+      plant_id: plantId,
+      start_date: startDate,
+      end_date: endDate,
+    })
+    return params
+  }, [plantId, startDate, endDate])
+
+  const loadSyncAnalysis = useCallback(async () => {
+    if (!plantId) return
+    setSyncLoading(true)
+    try {
+      const res = await fetch(`/api/inventory/sync-dosificador?${syncQueryParams()}`)
+      const json = await res.json()
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || 'No se pudo analizar la alineación')
+      }
+      const analysis = json as DosificadorSyncAnalysis & {
+        can_apply?: boolean
+        success: boolean
+      }
+      setSyncAnalysis({
+        plant_id: analysis.plant_id,
+        date_range: analysis.date_range,
+        items: analysis.items ?? [],
+        skipped: analysis.skipped ?? [],
+        already_aligned_count: analysis.already_aligned_count ?? 0,
+      })
+      setSyncSelectedIds(new Set((analysis.items ?? []).map((i) => i.material_id)))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Error al analizar')
+      setSyncAnalysis(null)
+      setSyncSelectedIds(new Set())
+    } finally {
+      setSyncLoading(false)
+    }
+  }, [plantId, syncQueryParams])
+
   const loadLedger = useCallback(async () => {
     if (!plantId || !activeMaterial?.id) {
       setLedger(null)
@@ -204,6 +266,59 @@ export default function MaterialAuditSheet({
   useEffect(() => {
     if (open && activeMaterial?.id) void loadLedger()
   }, [open, activeMaterial?.id, loadLedger])
+
+  const applySync = useCallback(
+    async (materialIds?: string[]) => {
+      if (!plantId) return
+      setSyncApplying(true)
+      try {
+        const res = await fetch(`/api/inventory/sync-dosificador?${syncQueryParams()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            plant_id: plantId,
+            start_date: startDate,
+            end_date: endDate,
+            material_ids: materialIds,
+            items: syncAnalysis?.items,
+          }),
+        })
+        const json = await res.json()
+        if (!res.ok || !json.success) {
+          throw new Error(json.error || 'No se pudo aplicar la alineación')
+        }
+        const updated = (json.updated ?? []) as DosificadorSyncAnalysis['items']
+        const failed = (json.failed ?? []) as Array<{ material_name: string; error: string }>
+        if (updated.length > 0) {
+          toast.success(`Stock alineado en ${updated.length} material(es)`)
+        }
+        if (failed.length > 0) {
+          toast.error(`Falló en ${failed.length}: ${failed[0]?.material_name}`)
+        }
+        await Promise.all([loadVariances(), loadSyncAnalysis(), loadLedger()])
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Error al aplicar')
+      } finally {
+        setSyncApplying(false)
+        setSyncConfirmOpen(false)
+      }
+    },
+    [
+      plantId,
+      startDate,
+      endDate,
+      syncQueryParams,
+      syncAnalysis?.items,
+      loadVariances,
+      loadSyncAnalysis,
+      loadLedger,
+    ],
+  )
+
+  const alignActiveMaterialToTheoretical = useCallback(async () => {
+    if (!activeMaterial?.id) return
+    await applySync([activeMaterial.id])
+  }, [activeMaterial?.id, applySync])
 
   /** Never show previous material’s ledger while another is selected or loading. */
   useLayoutEffect(() => {
@@ -510,6 +625,25 @@ export default function MaterialAuditSheet({
                       {fmtKg(Number(flow.variance))}
                     </p>
                   )}
+                  {canApplyDosificadorSync &&
+                    reconciliation.deltas.stock_vs_theoretical != null &&
+                    Math.abs(reconciliation.deltas.stock_vs_theoretical) > EPS && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2 h-7 text-xs"
+                        disabled={syncApplying}
+                        onClick={() => void alignActiveMaterialToTheoretical()}
+                      >
+                        {syncApplying ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        ) : (
+                          <Wrench className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        Alinear stock a aritmética
+                      </Button>
+                    )}
                 </div>
                 <div className="rounded-lg border border-stone-200 bg-white p-3">
                   <p className="text-xs font-semibold uppercase text-stone-500">Contabilidad / entradas período</p>
@@ -678,7 +812,112 @@ export default function MaterialAuditSheet({
                       'Actualizar'
                     )}
                   </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={syncLoading || !plantId}
+                    onClick={() => void loadSyncAnalysis()}
+                  >
+                    {syncLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    ) : (
+                      <Wrench className="h-4 w-4 mr-1" />
+                    )}
+                    Analizar alineación
+                  </Button>
                 </div>
+                {syncAnalysis && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2 text-xs text-stone-700">
+                    <p>
+                      <strong>{syncAnalysis.items.length}</strong> material(es) con stock dosificador distinto
+                      del objetivo · <strong>{syncAnalysis.already_aligned_count}</strong> ya alineados
+                      {syncAnalysis.skipped.length > 0 && (
+                        <>
+                          {' '}
+                          · <strong>{syncAnalysis.skipped.length}</strong> omitidos (sin baseline)
+                        </>
+                      )}
+                    </p>
+                    <p className="text-[11px] text-stone-600">
+                      Actualiza <code className="text-[10px]">material_inventory</code> directamente (sin
+                      ajuste contable). Objetivo: saldo reconciliado post-corte o, si no hay apertura, teórico
+                      aritmético del rango.
+                    </p>
+                    {syncAnalysis.items.length > 0 && (
+                      <div className="border border-stone-200 rounded-md bg-white max-h-[200px] overflow-y-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              {canApplyDosificadorSync && <TableHead className="w-8" />}
+                              <TableHead>Material</TableHead>
+                              <TableHead className="text-right">Actual</TableHead>
+                              <TableHead className="text-right">Objetivo</TableHead>
+                              <TableHead className="text-right">Δ</TableHead>
+                              <TableHead>Fuente</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {syncAnalysis.items.map((item) => (
+                              <TableRow key={item.material_id}>
+                                {canApplyDosificadorSync && (
+                                  <TableCell>
+                                    <Checkbox
+                                      checked={syncSelectedIds.has(item.material_id)}
+                                      onCheckedChange={(checked) => {
+                                        setSyncSelectedIds((prev) => {
+                                          const next = new Set(prev)
+                                          if (checked) next.add(item.material_id)
+                                          else next.delete(item.material_id)
+                                          return next
+                                        })
+                                      }}
+                                      aria-label={`Seleccionar ${item.material_name}`}
+                                    />
+                                  </TableCell>
+                                )}
+                                <TableCell className="font-medium">{item.material_name}</TableCell>
+                                <TableCell className="text-right font-mono">
+                                  {fmtKg(item.live_stock_kg)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono">
+                                  {fmtKg(item.target_stock_kg)}
+                                </TableCell>
+                                <TableCell className="text-right font-mono">
+                                  {item.delta_kg >= 0 ? '+' : ''}
+                                  {fmtKg(item.delta_kg)}
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant="outline" className="text-[10px]">
+                                    {item.target_source === 'reconciled' ? 'Reconciliado' : 'Teórico'}
+                                  </Badge>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                    {canApplyDosificadorSync && syncAnalysis.items.length > 0 && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={syncApplying || syncSelectedIds.size === 0}
+                        onClick={() => setSyncConfirmOpen(true)}
+                      >
+                        {syncApplying ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                        ) : null}
+                        Aplicar alineación ({syncSelectedIds.size})
+                      </Button>
+                    )}
+                    {!canApplyDosificadorSync && syncAnalysis.items.length > 0 && (
+                      <p className="text-[11px] text-amber-900">
+                        Solo gerencia de planta u operaciones puede aplicar cambios.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {variancesLoading ? (
                   <Skeleton className="h-40 w-full" />
                 ) : variances.length === 0 ? (
@@ -783,6 +1022,31 @@ export default function MaterialAuditSheet({
           </div>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog open={syncConfirmOpen} onOpenChange={setSyncConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Alinear stock dosificador</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se actualizará <code>material_inventory.current_stock</code> en{' '}
+              {syncSelectedIds.size} material(es) para igualar el saldo reconciliado o teórico del rango (
+              {startDate} — {endDate}). No se crearán filas de ajuste.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={syncApplying}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={syncApplying}
+              onClick={(e) => {
+                e.preventDefault()
+                void applySync([...syncSelectedIds])
+              }}
+            >
+              {syncApplying ? 'Aplicando…' : 'Confirmar'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
