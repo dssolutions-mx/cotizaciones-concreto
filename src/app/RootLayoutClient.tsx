@@ -205,11 +205,6 @@ const productionControlSidebarLinks: InventoryNavLink[] = [
     primary: true,
   },
   { title: 'Procesar Arkik', href: '/production-control/arkik-upload', IconComponent: Upload },
-  {
-    title: 'Conciliar consumos Arkik',
-    href: '/production-control/arkik-consumption-comparison',
-    IconComponent: BarChart3,
-  },
   { title: 'Servicio de bombeo', href: '/production-control/pumping-service', IconComponent: Truck },
 ];
 

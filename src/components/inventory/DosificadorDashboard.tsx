@@ -551,23 +551,6 @@ export default function DosificadorDashboard() {
               <ChevronRight className="h-5 w-5 text-stone-400 group-hover:text-violet-700 shrink-0" />
             </Link>
             <Link
-              href="/production-control/arkik-consumption-comparison"
-              className="group flex items-center gap-4 rounded-lg border border-sky-200 bg-sky-50/40 p-4 min-h-[4.5rem] hover:bg-sky-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
-            >
-              <div className="h-12 w-12 rounded-lg bg-sky-100 border border-sky-200 flex items-center justify-center shrink-0">
-                <BarChart3 className="h-6 w-6 text-sky-800" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-stone-900 group-hover:text-sky-900">
-                  Conciliar consumos Arkik
-                </div>
-                <div className="text-xs text-stone-600">
-                  Consumo con remisión vs remision_materiales
-                </div>
-              </div>
-              <ChevronRight className="h-5 w-5 text-stone-400 group-hover:text-sky-700 shrink-0" />
-            </Link>
-            <Link
               href="/production-control/pumping-service"
               className="group flex items-center gap-4 rounded-lg border border-stone-200 bg-white p-4 min-h-[4.5rem] hover:bg-stone-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
             >
