@@ -4,6 +4,7 @@ import type {
 } from '@/lib/inventory/arkikApplyQuantityConversion';
 import { arkikRowHasRemision } from '@/lib/inventory/arkikMaterialMovementsParser';
 import type { ArkikConsumoComparisonResult } from '@/lib/inventory/arkikConsumoComparator';
+import type { ArkikConsumoRemisionComparisonResult } from '@/lib/inventory/arkikConsumoRemisionComparator';
 import type { ArkikRegresoComparisonResult } from '@/lib/inventory/arkikRegresoProveedorComparator';
 
 export type ArkikSystemSource = 'entry' | 'adjustment';
@@ -147,17 +148,20 @@ export type ArkikComparisonResult = {
 
 export type ArkikReconciliationResult = {
   con_remision: ArkikComparisonResult;
+  consumo_con_remision: ArkikConsumoRemisionComparisonResult;
   consumo_sin_remision: ArkikConsumoComparisonResult;
   regreso_proveedor: ArkikRegresoComparisonResult;
 };
 
 export function buildArkikReconciliationResult(
   conRemision: ArkikComparisonResult,
+  consumoConRemision: ArkikConsumoRemisionComparisonResult,
   consumoSinRemision: ArkikConsumoComparisonResult,
   regresoProveedor: ArkikRegresoComparisonResult
 ): ArkikReconciliationResult {
   return {
     con_remision: conRemision,
+    consumo_con_remision: consumoConRemision,
     consumo_sin_remision: consumoSinRemision,
     regreso_proveedor: regresoProveedor,
   };

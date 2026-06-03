@@ -31,6 +31,7 @@ import type {
   ArkikSystemSource,
 } from '@/lib/inventory/arkikEntriesComparator'
 import type { ArkikConsumoComparisonResult } from '@/lib/inventory/arkikConsumoComparator'
+import type { ArkikConsumoRemisionComparisonResult } from '@/lib/inventory/arkikConsumoRemisionComparator'
 import type { ArkikRegresoComparisonResult } from '@/lib/inventory/arkikRegresoProveedorComparator'
 import { formatArkikQtyWithKg } from '@/lib/inventory/arkikUnitConversion'
 import type { ArkikParseMeta } from '@/lib/inventory/arkikMaterialMovementsParser'
@@ -138,6 +139,7 @@ export default function ArkikEntriesComparator() {
   }, [currentPlant?.id, file, dateFrom, dateTo])
 
   const rem = result?.con_remision ?? null
+  const consumoRem = result?.consumo_con_remision ?? null
   const consumo = result?.consumo_sin_remision ?? null
   const regreso = result?.regreso_proveedor ?? null
 
@@ -145,6 +147,11 @@ export default function ArkikEntriesComparator() {
     if (!rem) return []
     return Object.entries(rem.summary).sort(([a], [b]) => a.localeCompare(b))
   }, [rem])
+
+  const consumoRemSummaryRows = useMemo(() => {
+    if (!consumoRem) return []
+    return Object.entries(consumoRem.summary).sort(([a], [b]) => a.localeCompare(b))
+  }, [consumoRem])
 
   const consumoSummaryRows = useMemo(() => {
     if (!consumo) return []
@@ -185,6 +192,11 @@ export default function ArkikEntriesComparator() {
     rem.only_excel.length === 0 &&
     rem.only_db.length === 0 &&
     rem.adjustments_without_remision.length === 0
+  const consumoRemOk =
+    consumoRem != null &&
+    consumoRem.only_excel.length === 0 &&
+    consumoRem.only_db.length === 0 &&
+    consumoRem.meta.matched_with_qty_diff === 0
   const consumoOk =
     consumo != null &&
     consumo.only_excel.length === 0 &&
@@ -196,7 +208,7 @@ export default function ArkikEntriesComparator() {
     regreso.only_excel.length === 0 &&
     regresoOnlyDbCount === 0 &&
     regreso.db_regreso_notes_review.length === 0
-  const allOk = result != null && remOk && consumoOk && regresoOk
+  const allOk = result != null && remOk && consumoRemOk && consumoOk && regresoOk
 
   return (
     <div className="space-y-6">
@@ -209,10 +221,10 @@ export default function ArkikEntriesComparator() {
         <p className="text-sm text-stone-600 mt-1 max-w-2xl">
           Cargue <strong>Movimientos de Material</strong> de Arkik. Tras cargar verá el desglose por
           tipo (Entrada, Entrada por Ajuste, Consumo, Salida por Ajuste, Regreso a proveedor).{' '}
-          <strong>Consumo con remisión</strong> no se concilia aquí (ya está en remisiones); solo{' '}
-          consumo <strong>sin remisión</strong>, salidas por ajuste y regresos frente a{' '}
-          <strong>ajustes negativos</strong>. Entradas y entradas por ajuste frente a entradas y{' '}
-          <strong>ajustes positivos</strong>.
+          <strong>Consumo con remisión</strong> se concilia contra{' '}
+          <strong>remision_materiales</strong>; consumo <strong>sin remisión</strong>, salidas por
+          ajuste y regresos frente a <strong>ajustes negativos</strong>. Entradas y entradas por
+          ajuste frente a entradas y <strong>ajustes positivos</strong>.
         </p>
         <p className="text-xs text-stone-500 mt-1">
           Planta: {currentPlant.name}
@@ -273,7 +285,7 @@ export default function ArkikEntriesComparator() {
         </CardContent>
       </Card>
 
-      {result && rem && consumo && regreso ? (
+      {result && rem && consumoRem && consumo && regreso ? (
         <>
           <div
             className={cn(
@@ -290,11 +302,11 @@ export default function ArkikEntriesComparator() {
             )}
             <div>
               {allOk ? (
-                <p className="font-medium">Todo conciliado en las tres vías para el período.</p>
+                <p className="font-medium">Todo conciliado en las cuatro vías para el período.</p>
               ) : (
                 <p className="font-medium">
-                  Hay diferencias en entradas, consumos o regresos a proveedor. Revise cada pestaña
-                  (en regresos, priorice las notas).
+                  Hay diferencias en entradas, consumos por remisión, ajustes negativos o regresos a
+                  proveedor. Revise cada pestaña (en regresos, priorice las notas).
                 </p>
               )}
               {lastFileName ? (
@@ -310,6 +322,9 @@ export default function ArkikEntriesComparator() {
           <Tabs defaultValue="remision" className="w-full">
             <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
               <TabsTrigger value="remision">Entradas (con remisión)</TabsTrigger>
+              <TabsTrigger value="consumo_remision">
+                Consumo remisiones ({parseMeta?.consumo_con_remision ?? 0})
+              </TabsTrigger>
               <TabsTrigger value="consumo">
                 Ajustes negativos ({parseMeta?.en_revision.ajustes_negativos ?? 0})
               </TabsTrigger>
@@ -320,6 +335,10 @@ export default function ArkikEntriesComparator() {
 
             <TabsContent value="remision" className="space-y-6 mt-0">
               <RemisionReconciliationPanel rem={rem} summaryRows={remSummaryRows} />
+            </TabsContent>
+
+            <TabsContent value="consumo_remision" className="space-y-6 mt-0">
+              <ConsumoRemisionPanel consumoRem={consumoRem} summaryRows={consumoRemSummaryRows} />
             </TabsContent>
 
             <TabsContent value="consumo" className="space-y-6 mt-0">
@@ -715,7 +734,7 @@ function ArkikMovementCategories({ meta }: { meta: ArkikParseMeta }) {
           Total filas: {meta.total_movements} · En revisión: {meta.en_revision.entradas} entradas
           · {meta.en_revision.ajustes_negativos} ajustes negativos
           {meta.consumo_con_remision > 0
-            ? ` · ${meta.consumo_con_remision} consumos con remisión excluidos`
+            ? ` · ${meta.consumo_con_remision} consumos con remisión → pestaña remisiones`
             : ''}
         </p>
         <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -734,7 +753,7 @@ function ArkikMovementCategories({ meta }: { meta: ArkikParseMeta }) {
               <p className="text-xs text-stone-500 mt-1 leading-snug">{row.hint}</p>
               {!row.revisar && row.tipo === 'Consumo' ? (
                 <Badge variant="secondary" className="mt-1.5 text-[10px]">
-                  No requiere revisión (con remisión)
+                  Sin remisión en Excel
                 </Badge>
               ) : row.revisar ? (
                 <Badge variant="outline" className="mt-1.5 text-[10px] border-violet-300 text-violet-800">
@@ -746,6 +765,241 @@ function ArkikMovementCategories({ meta }: { meta: ArkikParseMeta }) {
         </ul>
       </CardContent>
     </Card>
+  )
+}
+
+function ConsumoRemisionPanel({
+  consumoRem,
+  summaryRows,
+}: {
+  consumoRem: ArkikConsumoRemisionComparisonResult
+  summaryRows: [
+    string,
+    { matched: number; only_excel: number; only_db: number; with_qty_diff: number },
+  ][]
+}) {
+  const matchedCount = consumoRem.matched.length
+  const onlyExcelCount = consumoRem.only_excel.length
+  const onlyDbCount = consumoRem.only_db.length
+  const qtyDiffCount = consumoRem.meta.matched_with_qty_diff
+  const qtyDiffRows = consumoRem.matched.filter((r) => r.tiene_diferencia)
+
+  return (
+    <>
+      <p className="text-sm text-stone-600">
+        Movimientos Arkik <strong>Consumo</strong> con remisión en columna, frente a{' '}
+        <strong>remision_materiales</strong> del sistema. Clave: material + remisión normalizada
+        (p. ej. <code className="text-xs">P001-027472</code> → <code className="text-xs">27472</code>
+        ). Cantidades en unidad Arkik vs <strong>cantidad_real</strong> en sistema.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-emerald-200 bg-emerald-50/50">
+          <CardContent className="pt-4 pb-4">
+            <div className="text-sm text-stone-600">Coincidencias</div>
+            <div className="text-2xl font-semibold text-emerald-900 tabular-nums">{matchedCount}</div>
+            <div className="text-xs text-stone-500 mt-1">
+              Excel: {consumoRem.meta.excel_consumo_con_remision_count} filas · Sistema:{' '}
+              {consumoRem.meta.db_remision_materiales_count} remision_materiales
+            </div>
+          </CardContent>
+        </Card>
+        <Card className={cn('border-amber-200', qtyDiffCount > 0 ? 'bg-amber-50/60' : 'bg-white')}>
+          <CardContent className="pt-4 pb-4">
+            <div className="text-sm text-stone-600">Diferencia de cantidad</div>
+            <div className="text-2xl font-semibold text-amber-900 tabular-nums">{qtyDiffCount}</div>
+            <div className="text-xs text-stone-500 mt-1">Emparejados pero qty ≠ cantidad_real</div>
+          </CardContent>
+        </Card>
+        <Card className={cn('border-amber-200', onlyExcelCount > 0 ? 'bg-amber-50/60' : 'bg-white')}>
+          <CardContent className="pt-4 pb-4">
+            <div className="text-sm text-stone-600">Solo en Arkik</div>
+            <div className="text-2xl font-semibold text-amber-900 tabular-nums">{onlyExcelCount}</div>
+            <div className="text-xs text-stone-500 mt-1">Consumo sin remisión en sistema</div>
+          </CardContent>
+        </Card>
+        <Card className={cn('border-amber-200', onlyDbCount > 0 ? 'bg-amber-50/60' : 'bg-white')}>
+          <CardContent className="pt-4 pb-4">
+            <div className="text-sm text-stone-600">Solo en sistema</div>
+            <div className="text-2xl font-semibold text-amber-900 tabular-nums">{onlyDbCount}</div>
+            <div className="text-xs text-stone-500 mt-1">No está en export Arkik</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {summaryRows.length > 0 ? (
+        <Card className="border-stone-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Resumen por material</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Material</TableHead>
+                  <TableHead className="text-right">Coinciden</TableHead>
+                  <TableHead className="text-right">Diff qty</TableHead>
+                  <TableHead className="text-right">Solo Arkik</TableHead>
+                  <TableHead className="text-right">Solo sistema</TableHead>
+                  <TableHead className="w-[100px]">Estado</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {summaryRows.map(([mat, counts]) => {
+                  const ok =
+                    counts.only_excel === 0 && counts.only_db === 0 && counts.with_qty_diff === 0
+                  return (
+                    <TableRow key={mat}>
+                      <TableCell className="font-mono text-sm">{mat}</TableCell>
+                      <TableCell className="text-right tabular-nums">{counts.matched}</TableCell>
+                      <TableCell className="text-right tabular-nums">{counts.with_qty_diff}</TableCell>
+                      <TableCell className="text-right tabular-nums">{counts.only_excel}</TableCell>
+                      <TableCell className="text-right tabular-nums">{counts.only_db}</TableCell>
+                      <TableCell>
+                        {ok ? (
+                          <Badge variant="outline" className="border-emerald-300 text-emerald-800">
+                            OK
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="border-amber-300 text-amber-900">
+                            Revisar
+                          </Badge>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {consumoRem.meta.excel_consumo_con_remision_count === 0 ? (
+        <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          No se detectaron filas <strong>Consumo</strong> con remisión en el Excel.
+        </p>
+      ) : null}
+
+      <Tabs
+        defaultValue={
+          qtyDiffCount > 0 ? 'qty_diff' : matchedCount > 0 ? 'matched' : 'only_excel'
+        }
+        className="w-full"
+      >
+        <TabsList className="flex flex-wrap h-auto gap-1">
+          <TabsTrigger value="matched">Coincidencias ({matchedCount})</TabsTrigger>
+          {qtyDiffCount > 0 ? (
+            <TabsTrigger value="qty_diff">Diff cantidad ({qtyDiffCount})</TabsTrigger>
+          ) : null}
+          <TabsTrigger value="only_excel">Solo Arkik ({onlyExcelCount})</TabsTrigger>
+          <TabsTrigger value="only_db">Solo sistema ({onlyDbCount})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="matched" className="mt-4">
+          <DetailTable
+            empty="No hay coincidencias material + remisión en este período."
+            rows={consumoRem.matched.map((r, i) => ({
+              key: `${r.material}-${r.remision}-${i}`,
+              cells: [
+                r.material,
+                r.remision,
+                r.remision_raw,
+                r.fecha_excel ?? '—',
+                `${fmtQty(r.cantidad_excel)} ${r.unit_arkik}`,
+                r.fecha_db,
+                fmtQty(r.cantidad_real_db),
+                fmtQty(r.cantidad_teorica_db),
+                r.tiene_diferencia ? fmtQty(r.diferencia) : '—',
+                r.comentarios || '—',
+              ],
+            }))}
+            headers={[
+              'Material',
+              'Remisión',
+              'Remisión Arkik',
+              'Fecha Arkik',
+              'Cant. Arkik',
+              'Fecha sistema',
+              'Cant. real',
+              'Cant. teórica',
+              'Diferencia',
+              'Comentarios',
+            ]}
+          />
+        </TabsContent>
+
+        {qtyDiffCount > 0 ? (
+          <TabsContent value="qty_diff" className="mt-4">
+            <DetailTable
+              empty=""
+              rows={qtyDiffRows.map((r, i) => ({
+                key: `diff-${r.material}-${r.remision}-${i}`,
+                cells: [
+                  r.material,
+                  r.remision,
+                  `${fmtQty(r.cantidad_excel)} ${r.unit_arkik}`,
+                  fmtQty(r.cantidad_real_db),
+                  fmtQty(r.diferencia),
+                  r.comentarios || '—',
+                ],
+              }))}
+              headers={[
+                'Material',
+                'Remisión',
+                'Cant. Arkik',
+                'Cant. real sistema',
+                'Diferencia',
+                'Comentarios',
+              ]}
+            />
+          </TabsContent>
+        ) : null}
+
+        <TabsContent value="only_excel" className="mt-4">
+          <DetailTable
+            empty="No hay consumos Arkik sin remisión correspondiente en el sistema."
+            rows={consumoRem.only_excel.map((r) => ({
+              key: `${r.material}-${r.remision}-${r.fecha}`,
+              cells: [
+                r.material,
+                r.remision,
+                r.remision_raw,
+                r.fecha ?? '—',
+                `${fmtQty(r.cantidad)} ${r.unit_arkik}`,
+                r.comentarios || '—',
+              ],
+            }))}
+            headers={['Material', 'Remisión', 'Remisión Arkik', 'Fecha', 'Cantidad', 'Comentarios']}
+          />
+          {onlyExcelCount > 0 ? (
+            <p className="text-xs text-stone-500 mt-2">
+              <Link href="/production-control/remisiones" className="text-sky-700 hover:underline">
+                Revisar remisiones
+              </Link>{' '}
+              — la remisión puede no existir o el material no estar registrado en remision_materiales.
+            </p>
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value="only_db" className="mt-4">
+          <DetailTable
+            empty="No hay remision_materiales ausentes del export Arkik."
+            rows={consumoRem.only_db.map((r) => ({
+              key: `${r.material}-${r.remision}-${r.fecha}`,
+              cells: [
+                r.material,
+                r.remision,
+                r.fecha,
+                fmtQty(r.cantidad_real),
+                fmtQty(r.cantidad_teorica),
+              ],
+            }))}
+            headers={['Material', 'Remisión', 'Fecha', 'Cant. real', 'Cant. teórica']}
+          />
+        </TabsContent>
+      </Tabs>
+    </>
   )
 }
 

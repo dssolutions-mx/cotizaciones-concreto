@@ -105,6 +105,9 @@ XLSX.utils.book_append_sheet(wbConsumo, XLSX.utils.aoa_to_sheet(consumoRows), 'M
 const parsedConsumo = parseArkikMaterialMovementsWorkbook(wbConsumo);
 assert.strictEqual(parsedConsumo.consumos_sin_remision.length, 1);
 assert.strictEqual(parsedConsumo.consumos_sin_remision[0].notas, 'SIN REM');
+assert.strictEqual(parsedConsumo.consumos_con_remision.length, 1);
+assert.strictEqual(parsedConsumo.consumos_con_remision[0].remision, 'REM-99');
+assert.strictEqual(parsedConsumo.consumos_con_remision[0].notas, 'CON REM');
 assert.strictEqual(parsedConsumo.meta.consumo_con_remision, 1);
 assert.strictEqual(parsedConsumo.meta.consumo_sin_remision, 1);
 assert.strictEqual(parsedConsumo.meta.by_tipo['Consumo'], 2);

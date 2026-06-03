@@ -45,9 +45,9 @@ export function buildArkikCategoryRows(meta: ArkikParseMeta): ArkikCategoryRow[]
         const sinRem = meta.consumo_sin_remision;
         const hint =
           conRem > 0
-            ? `${conRem} con remisión (ya en remisiones, no revisar) · ${sinRem} sin remisión → ajuste negativo`
+            ? `${conRem} con remisión → remisiones · ${sinRem} sin remisión → ajuste negativo`
             : 'Sin remisión → ajuste negativo en sistema';
-        return { tipo, count, hint, revisar: sinRem > 0 };
+        return { tipo, count, hint, revisar: conRem > 0 || sinRem > 0 };
       }
       case 'Salida por Ajuste':
         return {

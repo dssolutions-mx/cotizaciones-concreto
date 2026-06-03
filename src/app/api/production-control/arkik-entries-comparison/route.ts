@@ -11,9 +11,11 @@ import {
   buildArkikReconciliationResult,
 } from '@/lib/inventory/arkikEntriesComparator';
 import { compareArkikConsumosSinRemision } from '@/lib/inventory/arkikConsumoComparator';
+import { compareArkikConsumosConRemision } from '@/lib/inventory/arkikConsumoRemisionComparator';
 import { compareArkikRegresoProveedor } from '@/lib/inventory/arkikRegresoProveedorComparator';
 import { fetchMaterialEntriesForArkikComparison } from '@/lib/inventory/fetchMaterialEntriesForArkikComparison';
 import { fetchMaterialAdjustmentsForArkikComparison } from '@/lib/inventory/fetchMaterialAdjustmentsForArkikComparison';
+import { fetchRemisionConsumptionsForArkikComparison } from '@/lib/inventory/fetchRemisionConsumptionsForArkikComparison';
 import { fetchMaterialUomHintsByCode } from '@/lib/inventory/fetchMaterialUomHintsForArkik';
 import { applyArkikQuantityConversion } from '@/lib/inventory/arkikApplyQuantityConversion';
 
@@ -128,9 +130,10 @@ export async function POST(request: NextRequest) {
 
     const buffer = await file.arrayBuffer();
     const parsed = parseArkikMaterialMovementsBuffer(buffer, file.name);
-    const [dbEntries, adjustmentsResult, uomMap] = await Promise.all([
+    const [dbEntries, adjustmentsResult, dbRemisionConsumos, uomMap] = await Promise.all([
       fetchMaterialEntriesForArkikComparison(supabase, plantId, dateFrom, dateTo),
       fetchMaterialAdjustmentsForArkikComparison(supabase, plantId, dateFrom, dateTo),
+      fetchRemisionConsumptionsForArkikComparison(supabase, plantId, dateFrom, dateTo),
       fetchMaterialUomHintsByCode(supabase),
     ]);
     const enriched = applyArkikQuantityConversion(parsed, uomMap);
@@ -140,6 +143,10 @@ export async function POST(request: NextRequest) {
       dbEntries,
       adjustmentsResult.positive_with_remision,
       adjustmentsResult.positive_without_remision
+    );
+    const consumoConRemision = compareArkikConsumosConRemision(
+      enriched.consumos_con_remision,
+      dbRemisionConsumos
     );
     const excelNegativos = [
       ...enriched.consumos_sin_remision,
@@ -157,6 +164,7 @@ export async function POST(request: NextRequest) {
     );
     const result = buildArkikReconciliationResult(
       conRemision,
+      consumoConRemision,
       consumoSinRemision,
       regresoProveedor
     );

@@ -7,6 +7,7 @@ import type {
   ArkikExcelEntry,
   ArkikExcelEntradaSinRemision,
   ArkikExcelConsumo,
+  ArkikExcelConsumoConRemision,
   ArkikExcelRegresoProveedor,
 } from '@/lib/inventory/arkikMaterialMovementsParser';
 
@@ -25,6 +26,11 @@ export type ArkikExcelConsumoEnriched = ArkikExcelConsumo & {
   conversion_note?: string;
 };
 
+export type ArkikExcelConsumoConRemisionEnriched = ArkikExcelConsumoConRemision & {
+  cantidad_kg: number;
+  conversion_note?: string;
+};
+
 export type ArkikExcelRegresoProveedorEnriched = ArkikExcelRegresoProveedor & {
   unit_arkik: string;
   cantidad_kg: number;
@@ -38,6 +44,7 @@ export type ArkikParseResultEnriched = ArkikParseResultEnrichedBuckets & {
 type ArkikParseResultEnrichedBuckets = {
   entradas: ArkikExcelEntryEnriched[];
   entradas_sin_remision: ArkikExcelEntradaSinRemisionEnriched[];
+  consumos_con_remision: ArkikExcelConsumoConRemisionEnriched[];
   consumos_sin_remision: ArkikExcelConsumoEnriched[];
   salidas_por_ajuste: ArkikExcelConsumoEnriched[];
   regresos_proveedor: ArkikExcelRegresoProveedorEnriched[];
@@ -62,6 +69,7 @@ export function applyArkikQuantityConversion(
   return {
     entradas: parsed.entradas.map((e) => enrichEntry(e, uomMap)),
     entradas_sin_remision: parsed.entradas_sin_remision.map((e) => enrichEntry(e, uomMap)),
+    consumos_con_remision: parsed.consumos_con_remision.map((c) => enrichEntry(c, uomMap)),
     consumos_sin_remision: parsed.consumos_sin_remision.map((c) => enrichEntry(c, uomMap)),
     salidas_por_ajuste: parsed.salidas_por_ajuste.map((c) => enrichEntry(c, uomMap)),
     regresos_proveedor: parsed.regresos_proveedor.map((r) => enrichEntry(r, uomMap)),

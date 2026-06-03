@@ -64,6 +64,18 @@ export type ArkikExcelConsumo = {
   fecha: string | null;
 };
 
+/** Consumo con remisión → remision_materiales en sistema. */
+export type ArkikExcelConsumoConRemision = {
+  material: string;
+  proveedor: string;
+  movement_type: string;
+  remision: string;
+  notas: string;
+  cantidad: number;
+  unit_arkik: string;
+  fecha: string | null;
+};
+
 export type ArkikExcelRegresoProveedor = {
   material: string;
   proveedor: string;
@@ -93,6 +105,8 @@ export type ArkikParseMeta = {
 export type ArkikParseResult = {
   entradas: ArkikExcelEntry[];
   entradas_sin_remision: ArkikExcelEntradaSinRemision[];
+  /** Consumo con remisión → remision_materiales. */
+  consumos_con_remision: ArkikExcelConsumoConRemision[];
   /** Consumo sin remisión + Salida por Ajuste → ajustes negativos. */
   consumos_sin_remision: ArkikExcelConsumo[];
   salidas_por_ajuste: ArkikExcelConsumo[];
@@ -404,6 +418,7 @@ function routeMovement(
 
   if (isArkikPureConsumoMovementType(movementType) && cantidad > 0) {
     if (arkikRowHasRemision(remisionRaw)) {
+      buckets.consumos_con_remision.push({ ...ctx, remision: remisionRaw });
       buckets.meta.consumo_con_remision += 1;
     } else {
       buckets.consumos_sin_remision.push(ctx);
@@ -430,6 +445,7 @@ export function parseArkikMaterialMovementsWorkbook(
   const empty: ArkikParseResult = {
     entradas: [],
     entradas_sin_remision: [],
+    consumos_con_remision: [],
     consumos_sin_remision: [],
     salidas_por_ajuste: [],
     regresos_proveedor: [],
@@ -455,6 +471,7 @@ export function parseArkikMaterialMovementsWorkbook(
   const buckets: ArkikParseResult = {
     entradas: [],
     entradas_sin_remision: [],
+    consumos_con_remision: [],
     consumos_sin_remision: [],
     salidas_por_ajuste: [],
     regresos_proveedor: [],
