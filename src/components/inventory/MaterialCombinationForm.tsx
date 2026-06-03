@@ -20,6 +20,7 @@ import {
   History,
   Undo2,
   PackageCheck,
+  Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -36,6 +37,7 @@ type PreviewInput = {
   available_kg: number
   estimated_cost: number
   sufficient: boolean
+  using_current_layers: boolean
 }
 
 type PreviewResult = {
@@ -45,6 +47,7 @@ type PreviewResult = {
   blended_unit_cost: number
   blended_total_cost: number
   all_sufficient: boolean
+  any_using_current_layers: boolean
 }
 
 type RecentCombination = {
@@ -165,7 +168,10 @@ export default function MaterialCombinationForm() {
 
   const outputQty = parseQty(outputQtyStr)
   const diffKg = outputQty - totalInputKg
-  const hasInsufficient = preview ? !preview.all_sufficient : false
+  // Only block submission if truly insufficient — not when we're using current layers as fallback
+  const hasInsufficient = preview
+    ? preview.inputs.some((p) => !p.sufficient && !p.using_current_layers)
+    : false
 
   const canSubmit =
     !!plantId &&
@@ -320,22 +326,30 @@ export default function MaterialCombinationForm() {
 
                     {/* Per-input live feedback */}
                     {row.material_id && (
-                      <div className="flex items-center justify-between gap-2 text-xs pl-0.5">
-                        <span className={cn('flex items-center gap-1', insufficient ? 'text-red-600' : 'text-stone-500')}>
-                          {insufficient && <AlertTriangle className="h-3 w-3" />}
-                          {p ? (
-                            <>Disponible: <strong>{fmtKg(p.available_kg)}</strong></>
-                          ) : (
-                            <span className="text-stone-400">Disponible: —</span>
-                          )}
-                        </span>
-                        {p && qty > 0 && p.sufficient && (
-                          <span className="text-stone-600">
-                            Costo FIFO ≈ <strong>{fmtMxn(p.estimated_cost)}</strong>
+                      <div className="space-y-1 pl-0.5">
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className={cn('flex items-center gap-1', insufficient ? 'text-red-600' : 'text-stone-500')}>
+                            {insufficient && <AlertTriangle className="h-3 w-3" />}
+                            {p ? (
+                              <>Disponible: <strong>{fmtKg(p.available_kg)}</strong></>
+                            ) : (
+                              <span className="text-stone-400">Disponible: —</span>
+                            )}
                           </span>
-                        )}
-                        {insufficient && (
-                          <span className="text-red-600 font-medium">Faltan {fmtKg(qty - p.available_kg)}</span>
+                          {p && qty > 0 && p.sufficient && (
+                            <span className="text-stone-600">
+                              Costo FIFO ≈ <strong>{fmtMxn(p.estimated_cost)}</strong>
+                            </span>
+                          )}
+                          {insufficient && (
+                            <span className="text-red-600 font-medium">Faltan {fmtKg(qty - p.available_kg)}</span>
+                          )}
+                        </div>
+                        {p?.using_current_layers && (
+                          <div className="flex items-start gap-1.5 text-xs text-sky-700 bg-sky-50 border border-sky-200 rounded px-2 py-1">
+                            <Info className="h-3 w-3 shrink-0 mt-0.5" />
+                            <span>Las capas de esa fecha ya se consumieron — se usarán las capas disponibles actuales con su costo real.</span>
+                          </div>
                         )}
                       </div>
                     )}

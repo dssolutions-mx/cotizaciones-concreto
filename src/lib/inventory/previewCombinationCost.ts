@@ -15,11 +15,11 @@ export type PreviewInputSpec = {
 export type PreviewInputResult = {
   material_id: string
   quantity_kg: number
-  /** kg available across FIFO layers at the date (running balance). */
   available_kg: number
-  /** Estimated FIFO cost (landed, fleet-inclusive) for quantity_kg. */
   estimated_cost: number
   sufficient: boolean
+  /** True when the specified date has no layers and we fell back to current available layers. */
+  using_current_layers: boolean
 }
 
 export type PreviewCombinationResult = {
@@ -29,35 +29,31 @@ export type PreviewCombinationResult = {
   blended_unit_cost: number
   blended_total_cost: number
   all_sufficient: boolean
+  /** At least one input fell back to current layers due to exhausted layers at the specified date. */
+  any_using_current_layers: boolean
 }
 
-/**
- * Read-only mirror of `consumeFifoForAdjustment`'s selection + pricing: computes the FIFO cost
- * a draw WOULD incur (and how much is available) without writing anything. Used for the live
- * combination preview. The committed cost remains authoritative — this is an estimate.
- */
-async function previewSingleDraw(
+type EntryLayerRow = {
+  id: string
+  entry_number: string | null
+  entry_date: string | null
+  remaining_quantity_kg: number | null
+  unit_price: number | null
+  landed_unit_price: number | null
+  received_qty_kg: number | null
+  quantity_received: number | string | null
+}
+
+async function fetchLayers(
   supabase: DbClient,
   plantId: string,
   materialId: string,
-  quantityKg: number,
-  consumptionDate: string,
-): Promise<{ availableKg: number; estimatedCost: number }> {
-  type EntryLayerRow = {
-    id: string
-    entry_number: string | null
-    entry_date: string | null
-    remaining_quantity_kg: number | null
-    unit_price: number | null
-    landed_unit_price: number | null
-    received_qty_kg: number | null
-    quantity_received: number | string | null
-  }
-
+  dateFilter?: string,
+): Promise<EntryLayerRow[]> {
   const entries: EntryLayerRow[] = []
-  let layerOffset = 0
+  let offset = 0
   for (;;) {
-    const { data: batch, error } = await supabase
+    let query = supabase
       .from('material_entries')
       .select(
         'id, entry_number, entry_date, remaining_quantity_kg, unit_price, landed_unit_price, received_qty_kg, quantity_received',
@@ -65,34 +61,81 @@ async function previewSingleDraw(
       .eq('material_id', materialId)
       .eq('plant_id', plantId)
       .eq('excluded_from_fifo', false)
-      .lte('entry_date', consumptionDate)
       .or('remaining_quantity_kg.is.null,remaining_quantity_kg.gte.0.001')
       .order('entry_date', { ascending: true })
       .order('entry_number', { ascending: true })
       .order('id', { ascending: true })
-      .range(layerOffset, layerOffset + MATERIAL_ENTRIES_FIFO_PAGE - 1)
+      .range(offset, offset + MATERIAL_ENTRIES_FIFO_PAGE - 1)
 
+    if (dateFilter) query = query.lte('entry_date', dateFilter)
+
+    const { data, error } = await query
     if (error) break
-    const rows = (batch ?? []) as EntryLayerRow[]
+    const rows = (data ?? []) as EntryLayerRow[]
     entries.push(...rows)
     if (rows.length < MATERIAL_ENTRIES_FIFO_PAGE) break
-    layerOffset += MATERIAL_ENTRIES_FIFO_PAGE
+    offset += MATERIAL_ENTRIES_FIFO_PAGE
   }
+  return entries
+}
 
+function computeCostFromLayers(
+  entries: EntryLayerRow[],
+  quantityKg: number,
+  fallbackPrice: number,
+): { availableKg: number; estimatedCost: number } {
   let availableKg = 0
   for (const e of entries) {
-    const remaining =
+    const r =
       e.remaining_quantity_kg !== null && e.remaining_quantity_kg !== undefined
         ? Number(e.remaining_quantity_kg)
         : e.received_qty_kg
           ? Number(e.received_qty_kg)
           : Number(e.quantity_received)
-    availableKg += remaining
+    availableKg += r
   }
 
-  // Price fallback (matches consumeFifoForAdjustment)
+  let remaining = quantityKg
+  let cost = 0
+  for (const e of entries) {
+    if (remaining <= QTY_EPS_KG) break
+    const layerQty =
+      e.remaining_quantity_kg !== null && e.remaining_quantity_kg !== undefined
+        ? Number(e.remaining_quantity_kg)
+        : e.received_qty_kg
+          ? Number(e.received_qty_kg)
+          : Number(e.quantity_received)
+    if (layerQty <= QTY_EPS_KG) continue
+    const price = e.landed_unit_price
+      ? Number(e.landed_unit_price)
+      : e.unit_price
+        ? Number(e.unit_price)
+        : fallbackPrice
+    const take = Math.min(remaining, layerQty)
+    cost += take * price
+    remaining -= take
+  }
+  return { availableKg, estimatedCost: Number(cost.toFixed(2)) }
+}
+
+/**
+ * Read-only FIFO cost preview. For past-dated combinations where all layers at that date
+ * are exhausted, falls back to current available layers (same cost basis, just later entries).
+ * The flag `using_current_layers` signals the UI to show a contextual note.
+ */
+async function previewSingleDraw(
+  supabase: DbClient,
+  plantId: string,
+  materialId: string,
+  quantityKg: number,
+  consumptionDate: string,
+): Promise<{ availableKg: number; estimatedCost: number; usingCurrentLayers: boolean }> {
+  const today = new Date().toISOString().slice(0, 10)
+  const isHistorical = consumptionDate < today
+
+  // Price fallback (same logic as consumeFifoForAdjustment)
   const consumptionCap = startOfMonthDate(
-    new Date(String(consumptionDate).includes('T') ? consumptionDate : `${consumptionDate}T12:00:00`),
+    new Date(consumptionDate.includes('T') ? consumptionDate : `${consumptionDate}T12:00:00`),
   )
   const { data: priceData } = await supabase
     .from('material_prices')
@@ -105,31 +148,28 @@ async function previewSingleDraw(
     ? Number((priceData ?? [])[0].price_per_unit)
     : 0
 
-  let remainingToAllocate = quantityKg
-  let estimatedCost = 0
-  for (const e of entries) {
-    if (remainingToAllocate <= QTY_EPS_KG) break
-    const entryRemaining =
+  // Try layers at the specified date first
+  const layersAtDate = await fetchLayers(supabase, plantId, materialId, consumptionDate)
+  let available = 0
+  for (const e of layersAtDate) {
+    const r =
       e.remaining_quantity_kg !== null && e.remaining_quantity_kg !== undefined
         ? Number(e.remaining_quantity_kg)
         : e.received_qty_kg
           ? Number(e.received_qty_kg)
           : Number(e.quantity_received)
-    if (entryRemaining <= QTY_EPS_KG) continue
-
-    let unitPrice = e.landed_unit_price
-      ? Number(e.landed_unit_price)
-      : e.unit_price
-        ? Number(e.unit_price)
-        : null
-    if (unitPrice === null) unitPrice = fallbackPrice
-
-    const qtyFromLayer = Math.min(remainingToAllocate, entryRemaining)
-    estimatedCost += qtyFromLayer * unitPrice
-    remainingToAllocate -= qtyFromLayer
+    available += r
   }
 
-  return { availableKg, estimatedCost: Number(estimatedCost.toFixed(2)) }
+  // Fallback: if historical date has no available layers, use all current layers
+  if (isHistorical && available < QTY_EPS_KG) {
+    const currentLayers = await fetchLayers(supabase, plantId, materialId)
+    const result = computeCostFromLayers(currentLayers, quantityKg, fallbackPrice)
+    return { ...result, usingCurrentLayers: true }
+  }
+
+  const result = computeCostFromLayers(layersAtDate, quantityKg, fallbackPrice)
+  return { ...result, usingCurrentLayers: false }
 }
 
 export async function previewCombinationCost(
@@ -151,10 +191,11 @@ export async function previewCombinationCost(
         available_kg: 0,
         estimated_cost: 0,
         sufficient: false,
+        using_current_layers: false,
       })
       continue
     }
-    const { availableKg, estimatedCost } = await previewSingleDraw(
+    const { availableKg, estimatedCost, usingCurrentLayers } = await previewSingleDraw(
       supabase,
       params.plantId,
       inp.material_id,
@@ -167,6 +208,7 @@ export async function previewCombinationCost(
       available_kg: availableKg,
       estimated_cost: estimatedCost,
       sufficient: availableKg >= inp.quantity_kg - QTY_EPS_KG,
+      using_current_layers: usingCurrentLayers,
     })
   }
 
@@ -181,5 +223,6 @@ export async function previewCombinationCost(
     blended_unit_cost: blendedUnitCost,
     blended_total_cost: Number((blendedUnitCost * outQty).toFixed(2)),
     all_sufficient: inputResults.every((r) => r.sufficient),
+    any_using_current_layers: inputResults.some((r) => r.using_current_layers),
   }
 }

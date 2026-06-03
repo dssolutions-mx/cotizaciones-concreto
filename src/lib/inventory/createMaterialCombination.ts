@@ -145,15 +145,36 @@ export async function createMaterialCombination(
       return { ok: false, error: adjErr?.message ?? 'Error al crear ajuste de entrada' }
     }
 
-    // Consume FIFO for this input
-    const fifoResult = await consumeFifoForAdjustment(supabase, {
+    // Consume FIFO for this input.
+    // For past-dated combinations where all layers at that date are exhausted, fall back to
+    // today's date so the draw picks up current available layers (same cost basis).
+    const today = new Date().toISOString().slice(0, 10)
+    const fifoDate = combination_date <= today ? combination_date : today
+
+    let fifoResult = await consumeFifoForAdjustment(supabase, {
       adjustmentId: adj.id,
       plantId: plant_id,
       materialId: inp.material_id,
       quantityKg: inp.quantity_kg,
-      consumptionDate: combination_date,
+      consumptionDate: fifoDate,
       userId: user_id,
     })
+
+    // If past-date draw failed due to exhausted layers, retry with today's date
+    if (
+      !fifoResult.ok &&
+      (fifoResult.code === 'INSUFFICIENT_INVENTORY' || fifoResult.code === 'NO_ENTRIES') &&
+      fifoDate < today
+    ) {
+      fifoResult = await consumeFifoForAdjustment(supabase, {
+        adjustmentId: adj.id,
+        plantId: plant_id,
+        materialId: inp.material_id,
+        quantityKg: inp.quantity_kg,
+        consumptionDate: today,
+        userId: user_id,
+      })
+    }
 
     if (!fifoResult.ok) {
       // The adjustment was inserted but FIFO failed; reverse adjustment stock, then rollback
