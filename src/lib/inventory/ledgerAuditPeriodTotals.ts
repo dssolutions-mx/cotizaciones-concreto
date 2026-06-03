@@ -84,7 +84,9 @@ export async function ledgerAuditAdjustmentTotalsByMaterialIds(
       .in('material_id', materialIds)
       .gte('adjustment_date', startDate)
       .lte('adjustment_date', endDate)
-      .not('reference_type', 'eq', 'inventory_closure')
+      // NULL-safe exclusion: `.not('reference_type','eq',…)` drops NULL rows (interplant
+      // transfers / manual corrections have reference_type=NULL), zeroing their adjustments.
+      .or('reference_type.is.null,reference_type.neq.inventory_closure')
       .order('adjustment_date', { ascending: false }),
     remisionIds.length > 0
       ? supabase
