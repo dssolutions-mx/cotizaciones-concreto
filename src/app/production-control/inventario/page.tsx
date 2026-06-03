@@ -102,6 +102,29 @@ export default function ProductionInventarioPage() {
       />
 
       <PlantConsumosAccountingExport plantId={currentPlant.id} />
+
+      <section className="rounded-lg border border-sky-200 bg-sky-50/30 p-4 md:p-5 space-y-3">
+        <div>
+          <h2 className="text-base font-semibold text-stone-900">Conciliación Arkik</h2>
+          <p className="text-sm text-stone-600 mt-1">
+            Compare el export <strong>Movimientos de Material</strong> de Arkik contra el sistema.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/production-control/arkik-entries-comparison"
+            className="inline-flex items-center rounded-md border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-800 hover:bg-stone-50"
+          >
+            Entradas y ajustes
+          </Link>
+          <Link
+            href="/production-control/arkik-consumption-comparison"
+            className="inline-flex items-center rounded-md border border-sky-300 bg-sky-700 px-3 py-2 text-sm font-medium text-white hover:bg-sky-800"
+          >
+            Consumos por remisión
+          </Link>
+        </div>
+      </section>
     </div>
   )
 }

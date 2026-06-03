@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Card,
   CardContent,
@@ -40,8 +41,22 @@ import {
   formatArkikByTipoLine,
 } from '@/lib/inventory/arkikParseMetaDisplay'
 import { adjustmentTypeLabelEs } from '@/lib/inventory/adjustmentModel'
-import { FileSpreadsheet, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react'
+import {
+  FileSpreadsheet,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+  ArrowRight,
+  PackageMinus,
+  PackagePlus,
+  RotateCcw,
+  Truck,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
+import {
+  type ArkikComparisonTab,
+  parseArkikComparisonTab,
+} from '@/lib/inventory/arkikComparisonTabs'
 
 function sourceLabel(source: ArkikSystemSource) {
   return source === 'entry' ? 'Entrada' : 'Ajuste'
@@ -74,7 +89,21 @@ function fmtQty(n: number) {
   return n.toLocaleString('es-MX', { maximumFractionDigits: 2 })
 }
 
-export default function ArkikEntriesComparator() {
+export type ArkikEntriesComparatorProps = {
+  /** Pestaña activa al cargar resultados (también respeta ?tab= en URL). */
+  initialTab?: ArkikComparisonTab
+  pageTitle?: string
+  pageDescription?: string
+}
+
+export default function ArkikEntriesComparator({
+  initialTab = 'remision',
+  pageTitle = 'Conciliar movimientos Arkik',
+  pageDescription =
+    'Cargue Movimientos de Material de Arkik y concilie entradas, consumos por remisión, ajustes negativos y regresos a proveedor contra el sistema.',
+}: ArkikEntriesComparatorProps = {}) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { currentPlant, isGlobalAdmin, isLoading: plantLoading } = usePlantContext()
   const mb = useMemo(() => monthBounds(), [])
   const [file, setFile] = useState<File | null>(null)
@@ -84,6 +113,24 @@ export default function ArkikEntriesComparator() {
   const [result, setResult] = useState<ArkikReconciliationResult | null>(null)
   const [parseMeta, setParseMeta] = useState<ArkikParseMeta | null>(null)
   const [lastFileName, setLastFileName] = useState<string | null>(null)
+
+  const tabFromUrl = parseArkikComparisonTab(searchParams.get('tab'))
+  const [activeTab, setActiveTab] = useState<ArkikComparisonTab>(tabFromUrl ?? initialTab)
+
+  useEffect(() => {
+    const next = parseArkikComparisonTab(searchParams.get('tab'))
+    if (next) setActiveTab(next)
+  }, [searchParams])
+
+  const selectTab = useCallback(
+    (tab: ArkikComparisonTab) => {
+      setActiveTab(tab)
+      const params = new URLSearchParams(searchParams.toString())
+      params.set('tab', tab)
+      router.replace(`?${params.toString()}`, { scroll: false })
+    },
+    [router, searchParams]
+  )
 
   const runComparison = useCallback(async () => {
     if (!currentPlant?.id) {
@@ -123,12 +170,17 @@ export default function ArkikEntriesComparator() {
         throw new Error(json.error || 'Error al comparar')
       }
       setResult(json.data as ArkikReconciliationResult)
-      setParseMeta(
+      const meta =
         json.parse_meta && typeof json.parse_meta === 'object'
           ? (json.parse_meta as ArkikParseMeta)
           : null
-      )
+      setParseMeta(meta)
       setLastFileName(json.file_name ?? file.name)
+      const preferredTab =
+        tabFromUrl ??
+        initialTab ??
+        (meta && meta.consumo_con_remision > 0 ? 'consumo_remision' : 'remision')
+      selectTab(preferredTab)
       toast.success('Comparación completada')
     } catch (e) {
       console.error(e)
@@ -136,7 +188,7 @@ export default function ArkikEntriesComparator() {
     } finally {
       setComparing(false)
     }
-  }, [currentPlant?.id, file, dateFrom, dateTo])
+  }, [currentPlant?.id, file, dateFrom, dateTo, initialTab, selectTab, tabFromUrl])
 
   const rem = result?.con_remision ?? null
   const consumoRem = result?.consumo_con_remision ?? null
@@ -215,17 +267,29 @@ export default function ArkikEntriesComparator() {
       <InventoryBreadcrumb />
 
       <div>
-        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">
-          Conciliar movimientos Arkik
-        </h1>
-        <p className="text-sm text-stone-600 mt-1 max-w-2xl">
-          Cargue <strong>Movimientos de Material</strong> de Arkik. Tras cargar verá el desglose por
-          tipo (Entrada, Entrada por Ajuste, Consumo, Salida por Ajuste, Regreso a proveedor).{' '}
-          <strong>Consumo con remisión</strong> se concilia contra{' '}
-          <strong>remision_materiales</strong>; consumo <strong>sin remisión</strong>, salidas por
-          ajuste y regresos frente a <strong>ajustes negativos</strong>. Entradas y entradas por
-          ajuste frente a entradas y <strong>ajustes positivos</strong>.
-        </p>
+        <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">{pageTitle}</h1>
+        <p className="text-sm text-stone-600 mt-1 max-w-2xl">{pageDescription}</p>
+        <div className="flex flex-wrap gap-2 mt-3">
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/production-control/arkik-entries-comparison?tab=remision">
+              Entradas Arkik
+            </Link>
+          </Button>
+          <Button
+            variant={initialTab === 'consumo_remision' ? 'default' : 'outline'}
+            size="sm"
+            asChild
+          >
+            <Link href="/production-control/arkik-consumption-comparison?tab=consumo_remision">
+              Consumos por remisión
+            </Link>
+          </Button>
+          <Button variant="outline" size="sm" asChild>
+            <Link href="/production-control/arkik-entries-comparison?tab=consumo">
+              Ajustes negativos
+            </Link>
+          </Button>
+        </div>
         <p className="text-xs text-stone-500 mt-1">
           Planta: {currentPlant.name}
           {currentPlant.code ? ` (${currentPlant.code})` : ''}
@@ -315,20 +379,50 @@ export default function ArkikEntriesComparator() {
             </div>
           </div>
 
-          {parseMeta && parseMeta.total_movements > 0 ? (
-            <ArkikMovementCategories meta={parseMeta} />
+          {parseMeta && parseMeta.consumo_con_remision > 0 && activeTab !== 'consumo_remision' ? (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+              <p>
+                <strong>{parseMeta.consumo_con_remision.toLocaleString('es-MX')}</strong> movimientos{' '}
+                <strong>Consumo con remisión</strong> en el Excel — concílielos contra{' '}
+                <strong>remision_materiales</strong>.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                className="shrink-0 bg-sky-800 hover:bg-sky-900"
+                onClick={() => selectTab('consumo_remision')}
+              >
+                Ir a consumos por remisión
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
           ) : null}
 
-          <Tabs defaultValue="remision" className="w-full">
-            <TabsList className="flex flex-wrap h-auto gap-1 mb-4">
-              <TabsTrigger value="remision">Entradas (con remisión)</TabsTrigger>
-              <TabsTrigger value="consumo_remision">
+          <ReconciliationLaneNav
+            activeTab={activeTab}
+            onSelectTab={selectTab}
+            parseMeta={parseMeta}
+            consumoRem={consumoRem}
+            rem={rem}
+            consumo={consumo}
+            regreso={regreso}
+          />
+
+          <Tabs value={activeTab} onValueChange={(v) => selectTab(v as ArkikComparisonTab)} className="w-full">
+            <TabsList className="flex flex-wrap h-auto gap-1 mb-4 p-1 bg-stone-100">
+              <TabsTrigger value="remision" className="data-[state=active]:bg-white">
+                Entradas (con remisión)
+              </TabsTrigger>
+              <TabsTrigger
+                value="consumo_remision"
+                className="data-[state=active]:bg-white data-[state=active]:text-sky-900 font-semibold"
+              >
                 Consumo remisiones ({parseMeta?.consumo_con_remision ?? 0})
               </TabsTrigger>
-              <TabsTrigger value="consumo">
+              <TabsTrigger value="consumo" className="data-[state=active]:bg-white">
                 Ajustes negativos ({parseMeta?.en_revision.ajustes_negativos ?? 0})
               </TabsTrigger>
-              <TabsTrigger value="regreso">
+              <TabsTrigger value="regreso" className="data-[state=active]:bg-white">
                 Regreso a proveedor ({regreso.meta.excel_regreso_count})
               </TabsTrigger>
             </TabsList>
@@ -349,6 +443,10 @@ export default function ArkikEntriesComparator() {
               <RegresoProveedorPanel regreso={regreso} summaryRows={regresoSummaryRows} />
             </TabsContent>
           </Tabs>
+
+          {parseMeta && parseMeta.total_movements > 0 ? (
+            <ArkikMovementCategories meta={parseMeta} onJumpToTab={selectTab} />
+          ) : null}
         </>
       ) : null}
     </div>
@@ -719,7 +817,118 @@ function RemisionReconciliationPanel({
   )
 }
 
-function ArkikMovementCategories({ meta }: { meta: ArkikParseMeta }) {
+function ReconciliationLaneNav({
+  activeTab,
+  onSelectTab,
+  parseMeta,
+  consumoRem,
+  rem,
+  consumo,
+  regreso,
+}: {
+  activeTab: ArkikComparisonTab
+  onSelectTab: (tab: ArkikComparisonTab) => void
+  parseMeta: ArkikParseMeta | null
+  consumoRem: ArkikConsumoRemisionComparisonResult
+  rem: ArkikComparisonResult
+  consumo: ArkikConsumoComparisonResult
+  regreso: ArkikRegresoComparisonResult
+}) {
+  const lanes = [
+    {
+      id: 'remision' as const,
+      label: 'Entradas',
+      sub: 'Con remisión',
+      count: rem.meta.excel_entrada_count,
+      issues: rem.only_excel.length + rem.only_db.length,
+      Icon: PackagePlus,
+    },
+    {
+      id: 'consumo_remision' as const,
+      label: 'Consumos',
+      sub: 'Por remisión → remision_materiales',
+      count: parseMeta?.consumo_con_remision ?? 0,
+      issues:
+        consumoRem.only_excel.length +
+        consumoRem.only_db.length +
+        consumoRem.meta.matched_with_qty_diff,
+      Icon: PackageMinus,
+      highlight: (parseMeta?.consumo_con_remision ?? 0) > 0,
+    },
+    {
+      id: 'consumo' as const,
+      label: 'Ajustes −',
+      sub: 'Consumo sin remisión',
+      count: parseMeta?.en_revision.ajustes_negativos ?? 0,
+      issues: consumo.only_excel.length + consumo.only_db.length,
+      Icon: RotateCcw,
+    },
+    {
+      id: 'regreso' as const,
+      label: 'Regreso',
+      sub: 'A proveedor',
+      count: regreso.meta.excel_regreso_count,
+      issues: regreso.only_excel.length + regreso.only_db.length,
+      Icon: Truck,
+    },
+  ]
+
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      {lanes.map(({ id, label, sub, count, issues, Icon, highlight }) => {
+        const active = activeTab === id
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onSelectTab(id)}
+            className={cn(
+              'rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600',
+              active
+                ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-200'
+                : highlight
+                  ? 'border-sky-200 bg-white hover:bg-sky-50/50'
+                  : 'border-stone-200 bg-white hover:bg-stone-50'
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <Icon
+                className={cn(
+                  'h-5 w-5 shrink-0 mt-0.5',
+                  active ? 'text-sky-800' : highlight ? 'text-sky-700' : 'text-stone-500'
+                )}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-stone-900 text-sm">{label}</div>
+                <div className="text-[11px] text-stone-500 leading-snug">{sub}</div>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className="text-lg font-semibold tabular-nums text-stone-900">{count}</span>
+                  {issues > 0 ? (
+                    <Badge variant="outline" className="border-amber-300 text-amber-900 text-[10px]">
+                      {issues} revisar
+                    </Badge>
+                  ) : count > 0 ? (
+                    <Badge variant="outline" className="border-emerald-300 text-emerald-800 text-[10px]">
+                      OK
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function ArkikMovementCategories({
+  meta,
+  onJumpToTab,
+}: {
+  meta: ArkikParseMeta
+  onJumpToTab: (tab: ArkikComparisonTab) => void
+}) {
   const rows = buildArkikCategoryRows(meta)
   const line = formatArkikByTipoLine(meta)
 
@@ -751,10 +960,27 @@ function ArkikMovementCategories({ meta }: { meta: ArkikParseMeta }) {
                 <span className="tabular-nums text-stone-700">{row.count}</span>
               </div>
               <p className="text-xs text-stone-500 mt-1 leading-snug">{row.hint}</p>
-              {!row.revisar && row.tipo === 'Consumo' ? (
-                <Badge variant="secondary" className="mt-1.5 text-[10px]">
-                  Sin remisión en Excel
-                </Badge>
+              {row.tipo === 'Consumo' && meta.consumo_con_remision > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 h-7 text-[11px] border-sky-300 text-sky-900 hover:bg-sky-50"
+                  onClick={() => onJumpToTab('consumo_remision')}
+                >
+                  Conciliar {meta.consumo_con_remision.toLocaleString('es-MX')} consumos
+                  <ArrowRight className="h-3 w-3 ml-1" />
+                </Button>
+              ) : row.tipo === 'Consumo' && meta.consumo_sin_remision > 0 ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 h-7 text-[11px]"
+                  onClick={() => onJumpToTab('consumo')}
+                >
+                  Ver ajustes negativos
+                </Button>
               ) : row.revisar ? (
                 <Badge variant="outline" className="mt-1.5 text-[10px] border-violet-300 text-violet-800">
                   Revisar en pestañas
