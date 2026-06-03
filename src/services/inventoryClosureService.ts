@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { ledgerAuditBridgeTotalsByMaterialIds } from '@/lib/inventory/ledgerAuditPeriodTotals';
+import { ledgerAuditAdjustmentTotalsByMaterialIds } from '@/lib/inventory/ledgerAuditPeriodTotals';
 import { buildTheoreticalBridgeFromFlow } from '@/lib/inventory/theoreticalBridge';
 import { InventoryDashboardService } from './inventoryDashboardService';
 import { resolveClosureVolumetricWeight, convertToKg } from '@/lib/inventory/closureVolumetricWeight';
@@ -200,10 +200,10 @@ export class InventoryClosureService {
     if (flows.length === 0) return;
 
     const materialIds = flows.map((f) => f.material_id);
-    const ledgerMap = await ledgerAuditBridgeTotalsByMaterialIds(this.supabase, {
+    const ledgerMap = await ledgerAuditAdjustmentTotalsByMaterialIds(this.supabase, {
       plantId,
-      periodStart: startDate,
-      periodEnd: endDate,
+      startDate,
+      endDate,
       materialIds,
     });
 
@@ -382,10 +382,10 @@ export class InventoryClosureService {
         ? materials.map((m) => m.material_id)
         : flows.map((f) => f.material_id);
 
-    const ledgerMap = await ledgerAuditBridgeTotalsByMaterialIds(this.supabase, {
+    const ledgerMap = await ledgerAuditAdjustmentTotalsByMaterialIds(this.supabase, {
       plantId: closure.plant_id,
-      periodStart: closure.period_start,
-      periodEnd: closure.period_end,
+      startDate: closure.period_start,
+      endDate: closure.period_end,
       materialIds,
     });
 
@@ -499,10 +499,10 @@ export class InventoryClosureService {
       ),
     );
 
-    const ledgerMap = await ledgerAuditBridgeTotalsByMaterialIds(this.supabase, {
+    const ledgerMap = await ledgerAuditAdjustmentTotalsByMaterialIds(this.supabase, {
       plantId,
-      periodStart: startDate,
-      periodEnd: endDate,
+      startDate,
+      endDate,
       materialIds,
     });
 

@@ -4,10 +4,7 @@
  */
 
 import type { MaterialFlowSummary } from '@/types/inventory'
-import type {
-  LedgerAuditAdjustmentTotals,
-  LedgerAuditBridgeTotals,
-} from '@/lib/inventory/ledgerAuditPeriodTotals'
+import type { LedgerAuditAdjustmentTotals } from '@/lib/inventory/ledgerAuditPeriodTotals'
 
 export type TheoreticalBridgeKg = {
   initial_stock_kg: number
@@ -59,26 +56,48 @@ export function computeBridgeTheoreticalFinalKg(parts: {
   )
 }
 
+/** Net period adjustments as used by `calculateHistoricalInventory` flow summary. */
+export function flowPeriodAdjustmentNetKg(flow: MaterialFlowSummary): number {
+  return (
+    Number(flow.total_manual_additions ?? 0) - Math.abs(Number(flow.total_manual_withdrawals ?? 0))
+  )
+}
+
 /** Build kg columns from dashboard flow + optional ledger audit overrides (consumos contable). */
 export function buildTheoreticalBridgeFromFlow(
   flow: MaterialFlowSummary,
-  ledger?: LedgerAuditAdjustmentTotals | LedgerAuditBridgeTotals,
+  ledger?: LedgerAuditAdjustmentTotals,
 ): TheoreticalBridgeKg {
   const { positive_kg, negative_kg, fromLedger } = bridgeAdjustmentColumns(flow, ledger)
-  const ledgerOpening =
-    ledger && 'opening_kg' in ledger && fromLedger ? ledger.opening_kg : undefined
-  const initial_stock_kg = ledgerOpening != null ? ledgerOpening : flow.initial_stock
   const period_entries_kg = flow.total_entries
   const period_consumption_kg = flow.total_remisiones_consumption
   const period_waste_kg = flow.total_waste
-  const theoretical_final_kg = computeBridgeTheoreticalFinalKg({
-    initial_stock_kg,
-    period_entries_kg,
-    period_adjustments_positive_kg: positive_kg,
-    period_adjustments_negative_kg: negative_kg,
-    period_consumption_kg,
-    period_waste_kg,
-  })
+
+  const ledgerPeriodAdjNet = positive_kg - negative_kg
+  const flowPeriodAdjNet = flowPeriodAdjustmentNetKg(flow)
+
+  // Dashboard flow omits paired positive adjustments on OPEN/ADJP FIFO materials; ledger audit does not.
+  const theoretical_final_kg = fromLedger
+    ? Number(flow.theoretical_final_stock) + (ledgerPeriodAdjNet - flowPeriodAdjNet)
+    : computeBridgeTheoreticalFinalKg({
+        initial_stock_kg: flow.initial_stock,
+        period_entries_kg,
+        period_adjustments_positive_kg: positive_kg,
+        period_adjustments_negative_kg: negative_kg,
+        period_consumption_kg,
+        period_waste_kg,
+      })
+
+  // Foot the bridge columns to the corrected final (inicial absorbs period adj delta vs dashboard).
+  const initial_stock_kg = fromLedger
+    ? theoretical_final_kg -
+      period_entries_kg -
+      positive_kg +
+      negative_kg +
+      period_consumption_kg +
+      period_waste_kg
+    : flow.initial_stock
+
   const system_current_stock_kg = flow.actual_current_stock
   return {
     initial_stock_kg,
