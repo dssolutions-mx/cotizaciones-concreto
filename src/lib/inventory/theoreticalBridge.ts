@@ -4,7 +4,10 @@
  */
 
 import type { MaterialFlowSummary } from '@/types/inventory'
-import type { LedgerAuditAdjustmentTotals } from '@/lib/inventory/ledgerAuditPeriodTotals'
+import type {
+  LedgerAuditAdjustmentTotals,
+  LedgerAuditBridgeTotals,
+} from '@/lib/inventory/ledgerAuditPeriodTotals'
 
 export type TheoreticalBridgeKg = {
   initial_stock_kg: number
@@ -59,10 +62,12 @@ export function computeBridgeTheoreticalFinalKg(parts: {
 /** Build kg columns from dashboard flow + optional ledger audit overrides (consumos contable). */
 export function buildTheoreticalBridgeFromFlow(
   flow: MaterialFlowSummary,
-  ledger?: LedgerAuditAdjustmentTotals,
+  ledger?: LedgerAuditAdjustmentTotals | LedgerAuditBridgeTotals,
 ): TheoreticalBridgeKg {
   const { positive_kg, negative_kg, fromLedger } = bridgeAdjustmentColumns(flow, ledger)
-  const initial_stock_kg = flow.initial_stock
+  const ledgerOpening =
+    ledger && 'opening_kg' in ledger && fromLedger ? ledger.opening_kg : undefined
+  const initial_stock_kg = ledgerOpening != null ? ledgerOpening : flow.initial_stock
   const period_entries_kg = flow.total_entries
   const period_consumption_kg = flow.total_remisiones_consumption
   const period_waste_kg = flow.total_waste
