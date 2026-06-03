@@ -29,6 +29,7 @@ import {
   ShieldAlert,
   ClipboardList,
   Search,
+  Combine,
 } from 'lucide-react'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { usePlantContext } from '@/contexts/PlantContext'
@@ -578,6 +579,7 @@ export default function DosificadorDashboard() {
               { href: '/production-control/lots', label: 'Lotes', Icon: Package },
               { href: '/production-control/adjustments', label: 'Ajustes', Icon: Settings },
               { href: '/production-control/transfer-between-plants', label: 'Transferir entre plantas', Icon: Truck },
+              { href: '/production-control/combine-materials', label: 'Combinar materiales', Icon: Combine },
               { href: '/production-control/reorder-config', label: 'Puntos de reorden', Icon: TrendingDown },
               { href: '/production-control/inventario', label: 'Inventario y conciliación', Icon: BarChart3 },
               {

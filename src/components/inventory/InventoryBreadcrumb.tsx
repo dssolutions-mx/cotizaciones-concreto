@@ -11,7 +11,7 @@ import {
   BreadcrumbLink,
   BreadcrumbPage,
 } from '@/components/ui/breadcrumb'
-import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus, FileText, Search } from 'lucide-react'
+import { Home, Package, Inbox, Settings, BarChart3, Calendar, Truck, FileUp, ArrowLeftRight, ClipboardPlus, FileText, Search, Combine } from 'lucide-react'
 
 interface BreadcrumbRouteItem {
   label: string
@@ -44,6 +44,10 @@ const inventoryRoutes: Record<string, BreadcrumbRouteItem[]> = {
   '/production-control/transfer-between-plants': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
     { label: 'Transferencia entre plantas', href: '/production-control/transfer-between-plants', icon: Truck }
+  ],
+  '/production-control/combine-materials': [
+    { label: 'Control de Producción', href: '/production-control', icon: Home },
+    { label: 'Combinación de materiales', href: '/production-control/combine-materials', icon: Combine }
   ],
   '/production-control/inventario': [
     { label: 'Control de Producción', href: '/production-control', icon: Home },
