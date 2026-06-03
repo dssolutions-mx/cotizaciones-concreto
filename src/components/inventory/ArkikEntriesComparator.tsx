@@ -270,11 +270,6 @@ export default function ArkikEntriesComparator({
         <h1 className="text-2xl font-semibold text-stone-900 tracking-tight">{pageTitle}</h1>
         <p className="text-sm text-stone-600 mt-1 max-w-2xl">{pageDescription}</p>
         <div className="flex flex-wrap gap-2 mt-3">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/production-control/arkik-entries-comparison?tab=remision">
-              Entradas Arkik
-            </Link>
-          </Button>
           <Button
             variant={initialTab === 'consumo_remision' ? 'default' : 'outline'}
             size="sm"

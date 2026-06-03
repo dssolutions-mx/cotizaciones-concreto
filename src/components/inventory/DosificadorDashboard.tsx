@@ -597,11 +597,6 @@ export default function DosificadorDashboard() {
               { href: '/production-control/reorder-config', label: 'Puntos de reorden', Icon: TrendingDown },
               { href: '/production-control/inventario', label: 'Inventario y conciliación', Icon: BarChart3 },
               {
-                href: '/production-control/arkik-entries-comparison',
-                label: 'Conciliar entradas Arkik',
-                Icon: Upload,
-              },
-              {
                 href: '/production-control/arkik-consumption-comparison',
                 label: 'Conciliar consumos Arkik',
                 Icon: BarChart3,
