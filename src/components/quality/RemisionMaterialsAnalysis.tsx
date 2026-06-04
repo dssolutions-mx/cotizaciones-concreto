@@ -34,13 +34,56 @@ interface MaterialAnalysis {
   material_type: string
   material_name: string
   theoretical_quantity: number
-  actual_quantity: number
+  /** Base real from batch (remision_materiales.cantidad_real); may be 0 when all consumption is in ajuste */
+  base_real: number
+  /** Retrabajo + manual (remision_materiales.ajuste) */
   adjustment: number
-  final_quantity: number
+  /** Total consumed = base_real + adjustment, with dedup when Arkik already summed into cantidad_real */
+  consumed_total: number
   difference: number
   percentage_difference: number
   variance_status: 'normal' | 'warning' | 'critical'
   has_adjustments: boolean
+}
+
+/**
+ * Total consumption = cantidad_real (base) + ajuste (retrabajo/manual).
+ * Arkik import often persists (base + ajuste) already in cantidad_real; skip adding ajuste again when duplicated.
+ */
+export function computeConsumedTotal(storedReal: number, storedAjuste: number): number {
+  const base = storedReal || 0
+  const adj = storedAjuste || 0
+  if (base < 0.01) return adj
+  if (adj < 0.01) return base
+  if (Math.abs(base - adj) < 0.02) return base
+  if (base > adj) return base
+  return base + adj
+}
+
+function resolveMaterialAmounts(
+  theoreticalQuantity: number,
+  storedReal: number,
+  storedAjuste: number,
+) {
+  const consumedTotal = computeConsumedTotal(storedReal, storedAjuste)
+  const difference = consumedTotal - theoreticalQuantity
+  const percentageDifference =
+    theoreticalQuantity > 0 ? (difference / theoreticalQuantity) * 100 : 0
+
+  let varianceStatus: 'normal' | 'warning' | 'critical' = 'normal'
+  const absPercentage = Math.abs(percentageDifference)
+  if (absPercentage > 10) varianceStatus = 'critical'
+  else if (absPercentage > 5) varianceStatus = 'warning'
+
+  return {
+    base_real: storedReal,
+    adjustment: storedAjuste,
+    consumed_total: consumedTotal,
+    difference,
+    percentageDifference,
+    varianceStatus,
+    has_adjustments: Math.abs(storedAjuste) > 0.01,
+  }
 }
 
 const MATERIAL_TYPE_MAP: Record<string, string> = {
@@ -171,27 +214,25 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
           mat?.material_name ||
           MATERIAL_TYPE_MAP[material.material_type as string] ||
           (material.material_type as string)
-        const theoreticalQuantity = (material.cantidad_teorica as number) || 0
-        const actualQuantity = (material.cantidad_real as number) || 0
-        const adjustment = (material.ajuste as number) || 0
-        const finalQuantity = actualQuantity + adjustment
-        const difference = finalQuantity - theoreticalQuantity
-        const percentageDifference = theoreticalQuantity > 0 ? (difference / theoreticalQuantity) * 100 : 0
-        let varianceStatus: 'normal' | 'warning' | 'critical' = 'normal'
-        const absPercentage = Math.abs(percentageDifference)
-        if (absPercentage > 10) varianceStatus = 'critical'
-        else if (absPercentage > 5) varianceStatus = 'warning'
+        const theoreticalQuantity = Number(material.cantidad_teorica) || 0
+        const storedReal = Number(material.cantidad_real) || 0
+        const storedAjuste = Number(material.ajuste) || 0
+        const resolved = resolveMaterialAmounts(
+          theoreticalQuantity,
+          storedReal,
+          storedAjuste,
+        )
         return {
           material_type: material.material_type as string,
           material_name: materialName,
           theoretical_quantity: theoreticalQuantity,
-          actual_quantity: actualQuantity,
-          adjustment,
-          final_quantity: finalQuantity,
-          difference,
-          percentage_difference: percentageDifference,
-          variance_status: varianceStatus,
-          has_adjustments: Math.abs(adjustment) > 0.01,
+          base_real: resolved.base_real,
+          adjustment: resolved.adjustment,
+          consumed_total: resolved.consumed_total,
+          difference: resolved.difference,
+          percentage_difference: resolved.percentageDifference,
+          variance_status: resolved.varianceStatus,
+          has_adjustments: resolved.has_adjustments,
         }
       })
 
@@ -381,7 +422,7 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
             <div>
               <CardTitle className="text-base font-semibold text-stone-900">Comparación de Materiales</CardTitle>
               <CardDescription className="mt-0.5">
-                Análisis detallado de variaciones entre cantidades teóricas y reales
+                Consumo total = cantidad real (base) + ajustes (retrabajo/manual). La columna total evita duplicar cuando Arkik ya guardó la suma en real.
               </CardDescription>
             </div>
             {isCrossPlant && (
@@ -405,7 +446,7 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
                       <TableHead className="text-right text-stone-700">Cant. Teórica</TableHead>
                       <TableHead className="text-right text-stone-700">Cant. Real</TableHead>
                       <TableHead className="text-right text-stone-700">Ajustes</TableHead>
-                      <TableHead className="text-right text-stone-700">Cant. Final</TableHead>
+                      <TableHead className="text-right text-stone-700">Consumo total</TableHead>
                       <TableHead className="text-right text-stone-700">Diferencia</TableHead>
                       <TableHead className="text-center text-stone-700">Variación</TableHead>
                     </TableRow>
@@ -424,8 +465,8 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
                         <TableCell className="text-right font-mono text-sm tabular-nums">
                           {material.theoretical_quantity.toFixed(2)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">
-                          {material.actual_quantity.toFixed(2)}
+                        <TableCell className="text-right font-mono text-sm tabular-nums text-stone-700">
+                          {material.base_real.toFixed(2)}
                         </TableCell>
                         <TableCell
                           className={cn(
@@ -441,8 +482,8 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
                             ? `${material.adjustment > 0 ? '+' : ''}${material.adjustment.toFixed(2)}`
                             : '—'}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-sm font-semibold tabular-nums">
-                          {material.final_quantity.toFixed(2)}
+                        <TableCell className="text-right font-mono text-sm font-semibold tabular-nums text-stone-900">
+                          {material.consumed_total.toFixed(2)}
                         </TableCell>
                         <TableCell
                           className={cn(
