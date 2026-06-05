@@ -35,6 +35,12 @@ import {
   supplierInvoiceAllocatedMessage,
   type SupplierInvoiceDuplicates,
 } from '@/lib/ap/cfdiImportReview'
+import {
+  buildFleetInvoiceAggregatedLines,
+  fleetQtyForBilling,
+  fleetUnitPriceForBilling,
+  serviceUomLabelEs,
+} from '@/lib/ap/fleetInvoiceLines'
 
 function orphanEntryRemisionSuffix(entry: OrphanEntry, mode: 'material' | 'fleet' = 'material'): string {
   const rem = orphanEntryLoggedRemisionLabel(entry, mode)
@@ -55,6 +61,9 @@ export type OrphanEntry = {
   unit_price: number | null
   total_cost: number | null
   fleet_cost: number | null
+  fleet_qty_entered: number | null
+  fleet_uom: string | null
+  fleet_po_item_id: string | null
   landed_unit_price: number | null
   supplier_invoice: string | null
   fleet_invoice: string | null
@@ -89,6 +98,8 @@ type LineItem = {
   qty: string
   unit_price: string
   amount: string
+  /** Spanish label for fleet/service UoM shown beside Cantidad. */
+  qtyUom?: string
   /** When true the amount is derived from entry data and cannot be edited. */
   locked?: boolean
   line_source?: 'entry' | 'manual'
@@ -161,34 +172,20 @@ function buildMaterialLines(entries: OrphanEntry[]): LineItem[] {
   return lines
 }
 
-/** Build aggregated fleet display lines from orphan entries (groups by material_id, sums fleet_cost > 0). */
+/** Build aggregated fleet display lines using PO service UoM (tons, viajes, etc.). */
 function buildFleetLines(entries: OrphanEntry[]): LineItem[] {
-  const fleetGroups = new Map<string, OrphanEntry[]>()
-  for (const e of entries) {
-    if (Number(e.fleet_cost ?? 0) > 0) {
-      const mid = e.material_id
-      if (!fleetGroups.has(mid)) fleetGroups.set(mid, [])
-      fleetGroups.get(mid)!.push(e)
-    }
-  }
-
-  const lines: LineItem[] = []
-  for (const [, grp] of fleetGroups) {
-    const totalFleet = grp.reduce((s, e) => s + Number(e.fleet_cost ?? 0), 0)
-    const matName = grp[0].material?.material_name ?? ''
-    lines.push({
-      key: `fleet:${grp[0].material_id}`,
-      sourceEntries: grp,
-      entry_id: null,
-      cost_category: 'fleet',
-      description: `Flete — ${matName}`,
-      qty: String(grp.length),
-      unit_price: grp.length > 0 ? (totalFleet / grp.length).toFixed(2) : '',
-      amount: totalFleet.toFixed(2),
-      locked: true,
-    })
-  }
-  return lines
+  return buildFleetInvoiceAggregatedLines(entries).map(agg => ({
+    key: `fleet:${agg.groupKey}`,
+    sourceEntries: agg.sourceEntries as OrphanEntry[],
+    entry_id: null,
+    cost_category: 'fleet' as const,
+    description: agg.description,
+    qty: agg.qty,
+    qtyUom: agg.qtyUom,
+    unit_price: agg.unit_price,
+    amount: agg.amount,
+    locked: true,
+  }))
 }
 
 // ── small helper: CFDI pill badge ─────────────────────────────────────────────
@@ -789,13 +786,16 @@ export default function CreateSupplierInvoiceDrawer({
         for (const e of l.sourceEntries) {
           const amt = Number(e.fleet_cost ?? 0)
           if (amt <= 0) continue
+          const qty = fleetQtyForBilling(e)
+          const uomLabel = serviceUomLabelEs(e.fleet_uom)
+          const matName = e.material?.material_name ?? ''
           items.push({
             entry_id: e.id,
             line_source: 'entry',
             cost_category: 'fleet',
-            description: `Flete — ${e.entry_number}${orphanEntryRemisionSuffix(e, 'fleet')}`,
-            qty: null,
-            unit_price: e.fleet_cost ?? null,
+            description: `Flete — ${matName} · ${qty.toLocaleString('es-MX')} ${uomLabel} — ${e.entry_number}${orphanEntryRemisionSuffix(e, 'fleet')}`,
+            qty: qty > 0 ? qty : null,
+            unit_price: fleetUnitPriceForBilling(e),
             amount: amt,
           })
         }
@@ -1069,7 +1069,9 @@ export default function CreateSupplierInvoiceDrawer({
           )}
           <div className="flex gap-2">
             <div className="flex-1 space-y-0.5">
-              <span className="text-[10px] text-stone-500">Cantidad</span>
+              <span className="text-[10px] text-stone-500">
+                Cantidad{l.qtyUom ? ` (${l.qtyUom})` : ''}
+              </span>
               <Input
                 type="number"
                 value={l.qty}
@@ -1105,8 +1107,14 @@ export default function CreateSupplierInvoiceDrawer({
           {l.locked && l.sourceEntries && l.sourceEntries.length > 1 && (
             <p className="text-[10px] text-stone-400 pl-1">
               {l.sourceEntries.map((e) => {
-                const rem = orphanEntryLoggedRemisionLabel(e, 'material')
-                return rem ? `${e.entry_number} (Rem. ${rem})` : e.entry_number
+                const remMode = l.cost_category === 'fleet' ? 'fleet' : 'material'
+                const rem = orphanEntryLoggedRemisionLabel(e, remMode)
+                const qty = l.cost_category === 'fleet' ? fleetQtyForBilling(e) : null
+                const uom = l.cost_category === 'fleet' ? serviceUomLabelEs(e.fleet_uom) : ''
+                const qtyPart =
+                  qty != null && qty > 0 && uom ? ` · ${qty.toLocaleString('es-MX')} ${uom}` : ''
+                const base = `${e.entry_number}${qtyPart}`
+                return rem ? `${base} (Rem. ${rem})` : base
               }).join(', ')}
             </p>
           )}

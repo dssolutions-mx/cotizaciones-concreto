@@ -8,6 +8,7 @@ const FLAT_ENTRY_SELECT = `
   supplier_id, fleet_supplier_id, material_id, pricing_status,
   received_qty_entered, received_qty_kg, received_uom,
   unit_price, total_cost, fleet_cost, landed_unit_price,
+  fleet_qty_entered, fleet_uom, fleet_po_item_id,
   supplier_invoice, fleet_invoice,
   ap_due_date_material, ap_due_date_fleet,
   reviewed_at, reviewed_by
