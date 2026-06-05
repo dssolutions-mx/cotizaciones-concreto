@@ -1326,11 +1326,116 @@ export async function PUT(request: NextRequest) {
       updateData.entry_time = `${updateData.entry_time.trim()}:00`;
     }
 
+    const materialSupplierChanging =
+      updateData.supplier_id !== undefined &&
+      updateData.supplier_id !== null &&
+      String(updateData.supplier_id) !== String(currentEntry.supplier_id ?? '');
+
+    const fleetSupplierChanging =
+      updateData.fleet_supplier_id !== undefined &&
+      String(updateData.fleet_supplier_id ?? '') !== String(currentEntry.fleet_supplier_id ?? '');
+
+    /** Unlink PO lines when provider changes (revert tallies, clear FKs). */
+    let isMaterialPoUnlink = false;
+    let isFleetPoUnlink = false;
+    let materialPoRevertedForProviderChange = false;
+    let fleetPoRevertedForProviderChange = false;
+
+    if (materialSupplierChanging && currentEntry.po_item_id) {
+      if (!canCompleteEntryPricingReview(profile.role)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'No puede cambiar el proveedor de material con una OC vinculada. Solicite a administración.',
+          },
+          { status: 403 }
+        );
+      }
+      const linkingNewMaterialLine =
+        updateData.po_item_id &&
+        String(updateData.po_item_id) !== String(currentEntry.po_item_id);
+      const rev = await revertMaterialPoLineTalliesForEntrySnapshot(
+        supabase,
+        currentEntry.po_item_id as string,
+        currentEntry as unknown as Record<string, unknown>
+      );
+      if (!rev.ok) {
+        return NextResponse.json({ success: false, error: rev.error }, { status: 500 });
+      }
+      materialPoRevertedForProviderChange = true;
+      if (!linkingNewMaterialLine) {
+        updateData.po_id = null;
+        updateData.po_item_id = null;
+        isMaterialPoUnlink = true;
+      }
+    }
+
+    if (materialSupplierChanging && currentEntry.fleet_po_item_id) {
+      if (!canCompleteEntryPricingReview(profile.role)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'No puede cambiar el proveedor de material con una OC de flota vinculada. Solicite a administración.',
+          },
+          { status: 403 }
+        );
+      }
+      const linkingNewFleetLine =
+        updateData.fleet_po_item_id &&
+        String(updateData.fleet_po_item_id) !== String(currentEntry.fleet_po_item_id);
+      const revFleet = await revertFleetPoLineTalliesForEntrySnapshot(
+        supabase,
+        currentEntry.fleet_po_item_id as string,
+        currentEntry as unknown as Record<string, unknown>
+      );
+      if (!revFleet.ok) {
+        return NextResponse.json({ success: false, error: revFleet.error }, { status: 500 });
+      }
+      fleetPoRevertedForProviderChange = true;
+      if (!linkingNewFleetLine) {
+        updateData.fleet_po_id = null;
+        updateData.fleet_po_item_id = null;
+        isFleetPoUnlink = true;
+      }
+    }
+
+    if (fleetSupplierChanging && currentEntry.fleet_po_item_id && !isFleetPoUnlink) {
+      if (!canCompleteEntryPricingReview(profile.role)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'No puede cambiar el transportista con una OC de flota vinculada. Solicite a administración.',
+          },
+          { status: 403 }
+        );
+      }
+      const linkingNewFleetLine =
+        updateData.fleet_po_item_id &&
+        String(updateData.fleet_po_item_id) !== String(currentEntry.fleet_po_item_id);
+      const revFleet = await revertFleetPoLineTalliesForEntrySnapshot(
+        supabase,
+        currentEntry.fleet_po_item_id as string,
+        currentEntry as unknown as Record<string, unknown>
+      );
+      if (!revFleet.ok) {
+        return NextResponse.json({ success: false, error: revFleet.error }, { status: 500 });
+      }
+      fleetPoRevertedForProviderChange = true;
+      if (!linkingNewFleetLine) {
+        updateData.fleet_po_id = null;
+        updateData.fleet_po_item_id = null;
+        isFleetPoUnlink = true;
+      }
+    }
+
     const qtyTouches =
       updateData.quantity_received !== undefined ||
       updateData.received_qty_entered !== undefined ||
       updateData.received_qty_kg !== undefined;
-    if (qtyTouches && currentEntry.po_item_id && !updateData.po_item_id) {
+    if (qtyTouches && currentEntry.po_item_id && !updateData.po_item_id && !isMaterialPoUnlink) {
       updateData.po_item_id = currentEntry.po_item_id;
     }
 
@@ -1767,6 +1872,7 @@ export async function PUT(request: NextRequest) {
     if (
       (updateData.unit_price !== undefined ||
         updateData.total_cost !== undefined ||
+        updateData.supplier_id !== undefined ||
         updateData.fleet_supplier_id !== undefined ||
         updateData.fleet_cost !== undefined ||
         updateData.fleet_po_item_id !== undefined ||
@@ -1826,7 +1932,7 @@ export async function PUT(request: NextRequest) {
 
     // If linked to PO item, update the PO item received tallies and status
     try {
-      if (isMaterialPoRebind && currentEntry.po_item_id) {
+      if (isMaterialPoRebind && currentEntry.po_item_id && !materialPoRevertedForProviderChange) {
         const rev = await revertMaterialPoLineTalliesForEntrySnapshot(
           supabase,
           currentEntry.po_item_id as string,
@@ -1866,7 +1972,7 @@ export async function PUT(request: NextRequest) {
 
     // New fleet PO link on PUT (revisión de precios): revert old line on rebind, then increment línea de servicio
     try {
-      if (isFleetPoRebind && currentEntry.fleet_po_item_id) {
+      if (isFleetPoRebind && currentEntry.fleet_po_item_id && !fleetPoRevertedForProviderChange) {
         const revFleet = await revertFleetPoLineTalliesForEntrySnapshot(
           supabase,
           currentEntry.fleet_po_item_id as string,
@@ -1981,7 +2087,7 @@ export async function PUT(request: NextRequest) {
           amount: amountMaterial,
           cost_category: 'material',
         };
-        if (result.po_item_id) materialItemPayload.po_item_id = result.po_item_id;
+        materialItemPayload.po_item_id = result.po_item_id ?? null;
         const { error: itemErr } = await supabase
           .from('payable_items')
           .upsert(materialItemPayload, { onConflict: 'entry_id,cost_category' });

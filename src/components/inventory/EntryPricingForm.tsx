@@ -239,6 +239,7 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
 
   const [selectedSupplierId, setSelectedSupplierId] = useState('')
   const [editingSupplier, setEditingSupplier] = useState(false)
+  const [editingFleetSupplier, setEditingFleetSupplier] = useState(false)
 
   const [formData, setFormData] = useState({
     unit_price: initialMaterialUnitPriceField(entry),
@@ -288,7 +289,18 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
     return null
   }, [effectiveSupplierId, suppliers, entry.supplier])
 
-  const supplierLockedByPo = hasMaterialPoLink || hasFleetPoLink
+  const supplierLockedByPo =
+    (hasMaterialPoLink || hasFleetPoLink) && !canEditSupplierPaymentTerms
+
+  const fleetSupplierChanged =
+    Boolean(formData.fleet_supplier_id) &&
+    Boolean(entry.fleet_supplier_id) &&
+    formData.fleet_supplier_id !== entry.fleet_supplier_id
+
+  const fleetSupplierCleared =
+    !formData.fleet_supplier_id && Boolean(entry.fleet_supplier_id)
+
+  const fleetSupplierLockedByPo = hasFleetPoLink && !canEditSupplierPaymentTerms
 
   const { availablePlants } = usePlantContext()
 
@@ -917,7 +929,11 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         unit_price: parseFloat(formData.unit_price),
         total_cost: parseFloat(formData.total_cost),
         ...((!entry.supplier_id || supplierChanged) && effectiveSupplierId && { supplier_id: effectiveSupplierId }),
-        ...(effectiveFleetSupplierId && { fleet_supplier_id: effectiveFleetSupplierId }),
+        ...(fleetSupplierChanged || fleetSupplierCleared
+          ? { fleet_supplier_id: effectiveFleetSupplierId || null }
+          : effectiveFleetSupplierId
+            ? { fleet_supplier_id: effectiveFleetSupplierId }
+            : {}),
         ...(formData.fleet_cost && { fleet_cost: parseFloat(formData.fleet_cost) }),
         ...(formData.supplier_invoice && { supplier_invoice: formData.supplier_invoice }),
         ...(formData.ap_due_date_material && { ap_due_date_material: formData.ap_due_date_material }),
@@ -982,6 +998,8 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
         setSelectedMaterialSearchItemId('')
         setFleetRebindMode(false)
         setSelectedFleetSearchItemId('')
+        setEditingSupplier(false)
+        setEditingFleetSupplier(false)
         onSuccess?.(warnings)
       } else {
         const error = await response.json()
@@ -1218,7 +1236,9 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                   />
                   {supplierChanged && (
                     <p className="text-[11px] text-sky-800 leading-snug">
-                      Se actualizará el proveedor de la entrada al guardar. Esto permite vincular OC del proveedor correcto.
+                      {hasMaterialPoLink || hasFleetPoLink
+                        ? 'Al guardar se desvinculará la OC vinculada y se actualizará el proveedor del material.'
+                        : 'Se actualizará el proveedor de la entrada al guardar. Esto permite vincular OC del proveedor correcto.'}
                     </p>
                   )}
                 </div>
@@ -1243,6 +1263,11 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
                       type="button"
                       onClick={() => setEditingSupplier(true)}
                       className="inline-flex items-center gap-1 text-[11px] text-sky-800 hover:text-sky-900 font-medium shrink-0"
+                      title={
+                        hasMaterialPoLink || hasFleetPoLink
+                          ? 'Al cambiar el proveedor se desvinculará la OC al guardar'
+                          : undefined
+                      }
                     >
                       <Pencil className="h-3 w-3" /> Cambiar
                     </button>
@@ -1986,21 +2011,64 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label htmlFor="fleet_supplier">Proveedor de Flota</Label>
-                {hasFleetPoLink || selectedFleetSearchItemId ? (
+                {selectedFleetSearchItemId && !editingFleetSupplier ? (
                   <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
                     {fleetSupplierDisplayName || '—'}
                   </div>
+                ) : hasFleetPoLink && !editingFleetSupplier ? (
+                  <div className="space-y-1.5">
+                    <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm flex items-center justify-between gap-2">
+                      <span className="truncate">{fleetSupplierDisplayName || '—'}</span>
+                      {fleetSupplierLockedByPo ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] text-stone-400 shrink-0">
+                          <Lock className="h-3 w-3" /> Vinculado a OC
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setEditingFleetSupplier(true)}
+                          className="inline-flex items-center gap-1 text-[11px] text-sky-800 hover:text-sky-900 font-medium shrink-0"
+                          title="Al cambiar el transportista se desvinculará la OC de flota al guardar"
+                        >
+                          <Pencil className="h-3 w-3" /> Cambiar
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ) : (
-                  <Select
-                    value={formData.fleet_supplier_id}
-                    onValueChange={(value) => setFormData((prev) => ({ ...prev, fleet_supplier_id: value === 'none' ? '' : value }))}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Seleccione…" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Sin proveedor</SelectItem>
-                      {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-1.5">
+                    {hasFleetPoLink && editingFleetSupplier && (
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFormData((prev) => ({ ...prev, fleet_supplier_id: entry.fleet_supplier_id || '' }))
+                            setEditingFleetSupplier(false)
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-800"
+                        >
+                          <X className="h-3 w-3" /> Cancelar
+                        </button>
+                      </div>
+                    )}
+                    <Select
+                      value={formData.fleet_supplier_id || 'none'}
+                      onValueChange={(value) =>
+                        setFormData((prev) => ({ ...prev, fleet_supplier_id: value === 'none' ? '' : value }))
+                      }
+                    >
+                      <SelectTrigger id="fleet_supplier"><SelectValue placeholder="Seleccione…" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin proveedor</SelectItem>
+                        {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                    {(fleetSupplierChanged || fleetSupplierCleared) && hasFleetPoLink && (
+                      <p className="text-[11px] text-sky-800 leading-snug">
+                        Al guardar se desvinculará la OC de flota y se actualizará el transportista.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
               <div>

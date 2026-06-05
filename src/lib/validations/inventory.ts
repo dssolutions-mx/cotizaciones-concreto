@@ -155,6 +155,17 @@ export const UpdateMaterialEntrySchema = BaseMaterialEntryInputSchema.partial()
     id: z.string().uuid('ID debe ser un UUID válido'),
     /** FIFO costing: exclude this receipt layer from allocation (elevated roles). */
     excluded_from_fifo: z.boolean().optional(),
+    /** PUT may clear provider / PO links (null) when correcting reviewed entries. */
+    supplier_id: z.union([z.string().uuid('ID de proveedor debe ser un UUID válido'), z.null()]).optional(),
+    fleet_supplier_id: z
+      .union([z.string().uuid('ID de proveedor de flota debe ser un UUID válido'), z.null()])
+      .optional(),
+    po_id: z.union([z.string().uuid('ID de PO debe ser un UUID válido'), z.null()]).optional(),
+    po_item_id: z.union([z.string().uuid('ID de ítem de PO debe ser un UUID válido'), z.null()]).optional(),
+    fleet_po_id: z.union([z.string().uuid('ID de PO de flota debe ser un UUID válido'), z.null()]).optional(),
+    fleet_po_item_id: z
+      .union([z.string().uuid('ID de ítem de PO de flota debe ser un UUID válido'), z.null()])
+      .optional(),
   });
 
 export const UpdateMaterialAdjustmentSchema = MaterialAdjustmentInputSchema.partial().extend({
