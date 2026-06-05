@@ -50,6 +50,7 @@ interface Props {
   thresholdPct: number
   mode?: 'initial' | 'edit'
   onSaved: () => void
+  readOnly?: boolean
 }
 
 export default function PhysicalCountStep({
@@ -58,6 +59,7 @@ export default function PhysicalCountStep({
   thresholdPct,
   mode = 'initial',
   onSaved,
+  readOnly = false,
 }: Props) {
   const [rows, setRows] = useState<Record<string, RowState>>(() => {
     const init: Record<string, RowState> = {}
@@ -234,7 +236,9 @@ export default function PhysicalCountStep({
                         value={row.value}
                         onChange={(e) => updateRow(mat.material_id, { value: e.target.value })}
                         placeholder="0.00"
-                        className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]"
+                        readOnly={readOnly}
+                        disabled={readOnly}
+                        className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A] disabled:bg-stone-50"
                       />
                     </div>
                     <div>
@@ -242,7 +246,8 @@ export default function PhysicalCountStep({
                       <select
                         value={row.unit}
                         onChange={(e) => updateRow(mat.material_id, { unit: e.target.value as PhysicalCountUnit })}
-                        className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]"
+                        disabled={readOnly}
+                        className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A] disabled:bg-stone-50"
                       >
                         <option value="kg">kg</option>
                         <option value="m3">m³</option>
@@ -273,8 +278,10 @@ export default function PhysicalCountStep({
                           })
                         }
                         placeholder="ej. 1620"
+                        readOnly={readOnly}
+                        disabled={readOnly}
                         className={cn(
-                          'w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]',
+                          'w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A] disabled:bg-stone-50',
                           isM3Missing ? 'border-red-300' : 'border-stone-300',
                         )}
                       />
@@ -305,30 +312,34 @@ export default function PhysicalCountStep({
                         >
                           <Paperclip className="h-3 w-3 text-stone-400" />
                           <span className="max-w-[140px] truncate">{ev.original_name}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeEvidence(mat.material_id, ev.id)}
-                            className="text-stone-400 hover:text-red-500"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                          {!readOnly && (
+                            <button
+                              type="button"
+                              onClick={() => removeEvidence(mat.material_id, ev.id)}
+                              className="text-stone-400 hover:text-red-500"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
                         </div>
                       ))}
-                      <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-500 hover:border-stone-400 hover:text-stone-700 transition-colors">
-                        <Paperclip className="h-3 w-3" />
-                        {row.uploading ? 'Subiendo...' : 'Adjuntar foto'}
-                        <input
-                          type="file"
-                          className="sr-only"
-                          accept="image/*,.pdf"
-                          disabled={row.uploading}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0]
-                            if (file) handleEvidenceUpload(mat.material_id, file)
-                            e.target.value = ''
-                          }}
-                        />
-                      </label>
+                      {!readOnly && (
+                        <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-500 hover:border-stone-400 hover:text-stone-700 transition-colors">
+                          <Paperclip className="h-3 w-3" />
+                          {row.uploading ? 'Subiendo...' : 'Adjuntar foto'}
+                          <input
+                            type="file"
+                            className="sr-only"
+                            accept="image/*,.pdf"
+                            disabled={row.uploading}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              if (file) handleEvidenceUpload(mat.material_id, file)
+                              e.target.value = ''
+                            }}
+                          />
+                        </label>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -346,17 +357,19 @@ export default function PhysicalCountStep({
         <p className="text-xs text-stone-500">
           {materials.filter((m) => rows[m.material_id]?.value !== '').length} / {materials.length} materiales con conteo
         </p>
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-          className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
-        >
-          {saving
-            ? 'Guardando...'
-            : mode === 'edit'
-              ? 'Guardar conteos'
-              : 'Guardar conteos y continuar'}
-        </Button>
+        {!readOnly && (
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
+          >
+            {saving
+              ? 'Guardando...'
+              : mode === 'edit'
+                ? 'Guardar conteos'
+                : 'Guardar conteos y continuar'}
+          </Button>
+        )}
       </div>
     </div>
   )

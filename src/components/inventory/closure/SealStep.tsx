@@ -16,9 +16,10 @@ interface Props {
   closureId: string
   materials: InventoryClosureMaterial[]
   onSealed: () => void
+  readOnly?: boolean
 }
 
-export default function SealStep({ closureId, materials, onSealed }: Props) {
+export default function SealStep({ closureId, materials, onSealed, readOnly = false }: Props) {
   const [hasSignature, setHasSignature] = useState(false)
   const [sealing, setSealing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -111,46 +112,50 @@ export default function SealStep({ closureId, materials, onSealed }: Props) {
         )}
       </div>
 
-      {/* Signature pad */}
-      <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <Stamp className="h-4 w-4 text-[#1B2A4A]" />
-          <p className="text-sm font-medium text-stone-800">Firma del responsable</p>
-        </div>
-        <SignaturePad
-          exportRef={exportSignatureRef}
-          onChange={setHasSignature}
-        />
-      </div>
+      {!readOnly && (
+        <>
+          {/* Signature pad */}
+          <div className="rounded-xl border border-stone-200 bg-white p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Stamp className="h-4 w-4 text-[#1B2A4A]" />
+              <p className="text-sm font-medium text-stone-800">Firma del responsable</p>
+            </div>
+            <SignaturePad
+              exportRef={exportSignatureRef}
+              onChange={setHasSignature}
+            />
+          </div>
 
-      {/* Final confirmation checkbox */}
-      <label className="flex items-start gap-3 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={confirmed}
-          onChange={(e) => setConfirmed(e.target.checked)}
-          className="mt-0.5 h-4 w-4 rounded border-stone-300 accent-[#1B2A4A]"
-        />
-        <span className="text-sm text-stone-700">
-          Confirmo que he revisado todos los datos, los conteos físicos son correctos y autorizo el cierre
-          definitivo del inventario para este período.
-        </span>
-      </label>
+          {/* Final confirmation checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={confirmed}
+              onChange={(e) => setConfirmed(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-stone-300 accent-[#1B2A4A]"
+            />
+            <span className="text-sm text-stone-700">
+              Confirmo que he revisado todos los datos, los conteos físicos son correctos y autorizo el cierre
+              definitivo del inventario para este período.
+            </span>
+          </label>
 
-      {error && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          {error && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          )}
+
+          <div className="flex justify-end">
+            <Button
+              onClick={handleSeal}
+              disabled={sealing || !confirmed || !hasSignature}
+              className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
+            >
+              <Lock className="h-4 w-4" />
+              {sealing ? 'Sellando cierre...' : 'Sellar cierre definitivamente'}
+            </Button>
+          </div>
+        </>
       )}
-
-      <div className="flex justify-end">
-        <Button
-          onClick={handleSeal}
-          disabled={sealing || !confirmed || !hasSignature}
-          className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
-        >
-          <Lock className="h-4 w-4" />
-          {sealing ? 'Sellando cierre...' : 'Sellar cierre definitivamente'}
-        </Button>
-      </div>
     </div>
   )
 }

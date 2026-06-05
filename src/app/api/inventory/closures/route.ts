@@ -3,8 +3,11 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { InitiateClosureSchema, ListClosuresQuerySchema } from '@/lib/validations/inventoryClosure';
 import { canAccessAllInventoryPlants } from '@/lib/auth/inventoryRoles';
-
-const CLOSURE_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
+import {
+  canViewClosureAcrossPlants,
+  canViewInventoryClosure,
+  canWorkInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles';
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,7 +21,7 @@ export async function GET(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    if (!profile || !CLOSURE_ROLES.includes(profile.role)) {
+    if (!profile || !canViewInventoryClosure(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
@@ -34,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     // Non-global users can only see their own plant
     const plantId =
-      canAccessAllInventoryPlants(profile.role) ? query.plant_id : (profile.plant_id ?? undefined);
+      canViewClosureAcrossPlants(profile.role) ? query.plant_id : (profile.plant_id ?? undefined);
 
     const service = new InventoryClosureService(supabase);
     const closures = await service.listClosures({
@@ -63,7 +66,7 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    if (!profile || !CLOSURE_ROLES.includes(profile.role)) {
+    if (!profile || !canWorkInventoryClosure(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 

@@ -56,7 +56,7 @@ const navItems: NavItem[] = [
     href: '/production-control/inventory-closure',
     label: 'Cierre',
     icon: ClipboardList,
-    roles: ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'DOSIFICADOR'],
+    roles: ['PLANT_MANAGER', 'EXECUTIVE', 'ADMIN_OPERATIONS', 'DOSIFICADOR', 'CREDIT_VALIDATOR'],
   },
 ]
 

@@ -23,6 +23,7 @@ interface Props {
   onConfirm: () => void | Promise<void>
   confirmed: boolean
   confirming?: boolean
+  readOnly?: boolean
 }
 
 export default function TheoreticalReviewStep({
@@ -34,6 +35,7 @@ export default function TheoreticalReviewStep({
   onConfirm,
   confirmed,
   confirming = false,
+  readOnly = false,
 }: Props) {
   const totalInitial = materials.reduce((s, m) => s + (m.initial_stock_kg ?? 0), 0)
   const totalEntries = materials.reduce((s, m) => s + (m.period_entries_kg ?? 0), 0)
@@ -193,21 +195,23 @@ export default function TheoreticalReviewStep({
         )}
       </div>
 
-      <div className="flex justify-end">
-        <Button
-          onClick={onConfirm}
-          disabled={confirmed || confirming || loading || materials.length === 0}
-          className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
-        >
-          {confirmed ? (
-            <><CheckCircle2 className="h-4 w-4" /> Datos confirmados</>
-          ) : confirming ? (
-            <>Confirmando...</>
-          ) : (
-            <>Confirmar datos y continuar</>
-          )}
-        </Button>
-      </div>
+      {!readOnly && (
+        <div className="flex justify-end">
+          <Button
+            onClick={onConfirm}
+            disabled={confirmed || confirming || loading || materials.length === 0}
+            className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
+          >
+            {confirmed ? (
+              <><CheckCircle2 className="h-4 w-4" /> Datos confirmados</>
+            ) : confirming ? (
+              <>Confirmando...</>
+            ) : (
+              <>Confirmar datos y continuar</>
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -16,6 +16,7 @@ interface Props {
   thresholdPct: number
   onSaved: () => void
   onEditPhysicalCount?: () => void
+  readOnly?: boolean
 }
 
 export default function JustificationStep({
@@ -24,6 +25,7 @@ export default function JustificationStep({
   thresholdPct,
   onSaved,
   onEditPhysicalCount,
+  readOnly = false,
 }: Props) {
   const requiring = materials.filter((m) => m.requires_justification)
   const optional = materials.filter((m) => !m.requires_justification && Math.abs(m.variance_kg ?? 0) > 0.001)
@@ -98,8 +100,10 @@ export default function JustificationStep({
         value={texts[m.material_id] ?? ''}
         onChange={(e) => setTexts((prev) => ({ ...prev, [m.material_id]: e.target.value }))}
         rows={3}
+        readOnly={readOnly}
+        disabled={readOnly}
         placeholder="Explica la causa de la varianza..."
-        className="w-full resize-none rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A]"
+        className="w-full resize-none rounded-lg border border-stone-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1B2A4A] disabled:bg-stone-50 disabled:text-stone-700"
       />
     </div>
   )
@@ -142,28 +146,30 @@ export default function JustificationStep({
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {onEditPhysicalCount ? (
+      {!readOnly && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {onEditPhysicalCount ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onEditPhysicalCount}
+              className="gap-2"
+            >
+              <ScanLine className="h-4 w-4" />
+              Editar conteo físico
+            </Button>
+          ) : (
+            <span />
+          )}
           <Button
-            type="button"
-            variant="outline"
-            onClick={onEditPhysicalCount}
-            className="gap-2"
+            onClick={handleSave}
+            disabled={saving || !allRequiredFilled}
+            className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
           >
-            <ScanLine className="h-4 w-4" />
-            Editar conteo físico
+            {saving ? 'Guardando...' : 'Guardar y continuar'}
           </Button>
-        ) : (
-          <span />
-        )}
-        <Button
-          onClick={handleSave}
-          disabled={saving || !allRequiredFilled}
-          className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
-        >
-          {saving ? 'Guardando...' : 'Guardar y continuar'}
-        </Button>
-      </div>
+        </div>
+      )}
     </div>
   )
 }

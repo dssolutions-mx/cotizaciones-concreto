@@ -25,7 +25,10 @@ import type { InventoryClosureSummary, ClosureStatus } from '@/types/inventoryCl
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
-import { canDeleteInventoryClosure } from '@/lib/auth/inventoryClosureRoles'
+import {
+  canDeleteInventoryClosure,
+  canWorkInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles'
 
 const STATUS_META: Record<ClosureStatus, { label: string; color: string; Icon: React.ElementType }> = {
   draft: { label: 'Borrador', color: 'bg-stone-100 text-stone-700 border-stone-200', Icon: Clock },
@@ -35,8 +38,6 @@ const STATUS_META: Record<ClosureStatus, { label: string; color: string; Icon: R
   sealed: { label: 'Sellado', color: 'bg-emerald-50 text-emerald-800 border-emerald-200', Icon: Lock },
   cancelled: { label: 'Cancelado', color: 'bg-red-50 text-red-700 border-red-200', Icon: AlertCircle },
 }
-
-const CLOSURE_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR']
 
 function fmtDate(d: string) {
   try { return format(parseISO(d), "d 'de' MMMM yyyy", { locale: es }) } catch { return d }
@@ -64,7 +65,7 @@ export default function InventoryClosureListPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
-  const canInitiate = CLOSURE_ROLES.includes(profile?.role ?? '')
+  const canInitiate = canWorkInventoryClosure(profile?.role)
   const canDelete = canDeleteInventoryClosure(profile?.role)
 
   const fetchClosures = useCallback(async () => {

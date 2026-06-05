@@ -3,9 +3,11 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { createAdminClientForApi } from '@/lib/supabase/api';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { canAccessAllInventoryPlants } from '@/lib/auth/inventoryRoles';
-import { canDeleteInventoryClosure } from '@/lib/auth/inventoryClosureRoles';
-
-const CLOSURE_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
+import {
+  assertClosurePlantAccessForView,
+  canDeleteInventoryClosure,
+  canViewInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles';
 
 export async function GET(
   _request: NextRequest,
@@ -23,7 +25,7 @@ export async function GET(
       .eq('id', user.id)
       .single();
 
-    if (!profile || !CLOSURE_ROLES.includes(profile.role)) {
+    if (!profile || !canViewInventoryClosure(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
@@ -31,11 +33,10 @@ export async function GET(
     const detail = await service.getClosureDetail(id);
 
     // RLS covers plant scoping, but double-check for non-global roles
-    if (
-      !canAccessAllInventoryPlants(profile.role) &&
-      detail.plant_id !== profile.plant_id
-    ) {
-      return NextResponse.json({ error: 'Sin permisos para este cierre' }, { status: 403 });
+    try {
+      assertClosurePlantAccessForView(profile, detail.plant_id);
+    } catch (e) {
+      return NextResponse.json({ error: (e as Error).message }, { status: 403 });
     }
 
     return NextResponse.json({ success: true, closure: detail });

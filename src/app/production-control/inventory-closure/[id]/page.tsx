@@ -45,6 +45,8 @@ const STEP_ORDER: ClosureStep[] = [
 import {
   canAdminInventoryClosure,
   canDeleteInventoryClosure,
+  canViewInventoryClosure,
+  canWorkInventoryClosure,
 } from '@/lib/auth/inventoryClosureRoles'
 
 export default function ClosureWizardPage() {
@@ -79,6 +81,8 @@ export default function ClosureWizardPage() {
 
   const canManage = canAdminInventoryClosure(profile?.role)
   const canDelete = canDeleteInventoryClosure(profile?.role)
+  const isViewOnly =
+    canViewInventoryClosure(profile?.role) && !canWorkInventoryClosure(profile?.role)
 
   const closureHref = `/production-control/inventory-closure/${closureId}`
 
@@ -359,7 +363,7 @@ export default function ClosureWizardPage() {
 
         {/* Action buttons */}
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          {!isSealed && !isCancelled && (
+          {!isViewOnly && !isSealed && !isCancelled && (
             <Button
               variant="outline"
               size="sm"
@@ -426,7 +430,7 @@ export default function ClosureWizardPage() {
         </p>
       )}
 
-      {!isSealed && !isCancelled && (
+      {!isViewOnly && !isSealed && !isCancelled && (
         <p className="text-xs text-stone-500 -mt-2">
           Usa <strong>Excel preliminar</strong> para compartir el puente teórico, consumos y conciliación con tu
           jefe antes de sellar el cierre.
@@ -437,7 +441,7 @@ export default function ClosureWizardPage() {
         <ClosureStepper
           currentStep={activeStep}
           reachableStep={detail ? statusToReachableStep(detail.status) : activeStep}
-          onStepClick={!isSealed ? handleStepClick : undefined}
+          onStepClick={isViewOnly || !isSealed ? handleStepClick : undefined}
           sealed={isSealed}
           className="mb-2"
         />
@@ -469,6 +473,7 @@ export default function ClosureWizardPage() {
                 confirmed={theoreticalConfirmed}
                 confirming={confirmingTheoretical}
                 onConfirm={handleConfirmTheoretical}
+                readOnly={isViewOnly}
               />
             </>
           )}
@@ -479,6 +484,7 @@ export default function ClosureWizardPage() {
               materials={detail.materials}
               thresholdPct={detail.variance_threshold_pct}
               mode={physicalCountReturnStep ? 'edit' : 'initial'}
+              readOnly={isViewOnly}
               onSaved={async () => {
                 await fetchDetail()
                 const next = physicalCountReturnStep ?? 'reconciliation'
@@ -493,8 +499,9 @@ export default function ClosureWizardPage() {
               materials={detail.materials}
               thresholdPct={detail.variance_threshold_pct}
               saving={false}
+              readOnly={isViewOnly}
               onConfirm={() => setActiveStep('justification')}
-              onEditPhysicalCount={() => goToPhysicalCountForEdit('reconciliation')}
+              onEditPhysicalCount={isViewOnly ? undefined : () => goToPhysicalCountForEdit('reconciliation')}
               onResyncTheoretical={canManage ? handleResyncTheoretical : undefined}
               resyncingTheoretical={resyncingTheoretical}
             />
@@ -505,11 +512,12 @@ export default function ClosureWizardPage() {
               closureId={closureId}
               materials={detail.materials}
               thresholdPct={detail.variance_threshold_pct}
+              readOnly={isViewOnly}
               onSaved={() => {
                 fetchDetail()
                 setActiveStep('seal')
               }}
-              onEditPhysicalCount={() => goToPhysicalCountForEdit('justification')}
+              onEditPhysicalCount={isViewOnly ? undefined : () => goToPhysicalCountForEdit('justification')}
             />
           )}
 
@@ -517,6 +525,7 @@ export default function ClosureWizardPage() {
             <SealStep
               closureId={closureId}
               materials={detail.materials}
+              readOnly={isViewOnly}
               onSealed={async () => {
                 await fetchDetail()
                 setActiveStep('export')

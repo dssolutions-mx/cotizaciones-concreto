@@ -4,8 +4,8 @@ import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { buildInventoryClosureExcel } from '@/lib/reports/inventoryClosureExcel';
 import { createAdminClientForApi } from '@/lib/supabase/api';
 import {
-  assertClosurePlantAccess,
-  canAccessInventoryClosure,
+  assertClosurePlantAccessForView,
+  canViewInventoryClosure,
 } from '@/lib/auth/inventoryClosureRoles';
 
 const BUCKET = 'inventory-closure-evidence';
@@ -30,7 +30,7 @@ export async function GET(
       .eq('id', user.id)
       .single();
 
-    if (!profile || !canAccessInventoryClosure(profile.role)) {
+    if (!profile || !canViewInventoryClosure(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
@@ -38,7 +38,7 @@ export async function GET(
     const detail = await service.getClosureDetail(closureId);
 
     try {
-      assertClosurePlantAccess(profile, detail.plant_id);
+      assertClosurePlantAccessForView(profile, detail.plant_id);
     } catch (e) {
       return NextResponse.json({ error: (e as Error).message }, { status: 403 });
     }

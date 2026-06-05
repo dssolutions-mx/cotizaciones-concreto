@@ -18,6 +18,7 @@ interface Props {
   onResyncTheoretical?: () => void
   resyncingTheoretical?: boolean
   saving: boolean
+  readOnly?: boolean
 }
 
 export default function ReconciliationStep({
@@ -28,6 +29,7 @@ export default function ReconciliationStep({
   onResyncTheoretical,
   resyncingTheoretical = false,
   saving,
+  readOnly = false,
 }: Props) {
   const withVariance = materials.filter((m) => Math.abs(m.variance_kg ?? 0) > 0.001)
   const zeroVariance = materials.filter((m) => Math.abs(m.variance_kg ?? 0) <= 0.001)
@@ -116,40 +118,42 @@ export default function ReconciliationStep({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {onResyncTheoretical ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onResyncTheoretical}
-              disabled={resyncingTheoretical || saving}
-              className="gap-2"
-            >
-              <RefreshCw className={resyncingTheoretical ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-              {resyncingTheoretical ? 'Recalculando teórico...' : 'Recalcular teórico'}
-            </Button>
-          ) : null}
-          {onEditPhysicalCount ? (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onEditPhysicalCount}
-              className="gap-2"
-            >
-              <ScanLine className="h-4 w-4" />
-              Editar conteo físico
-            </Button>
-          ) : null}
+      {!readOnly && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {onResyncTheoretical ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onResyncTheoretical}
+                disabled={resyncingTheoretical || saving}
+                className="gap-2"
+              >
+                <RefreshCw className={resyncingTheoretical ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
+                {resyncingTheoretical ? 'Recalculando teórico...' : 'Recalcular teórico'}
+              </Button>
+            ) : null}
+            {onEditPhysicalCount ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onEditPhysicalCount}
+                className="gap-2"
+              >
+                <ScanLine className="h-4 w-4" />
+                Editar conteo físico
+              </Button>
+            ) : null}
+          </div>
+          <Button
+            onClick={onConfirm}
+            disabled={saving}
+            className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
+          >
+            {saving ? 'Procesando...' : 'Confirmar y continuar'}
+          </Button>
         </div>
-        <Button
-          onClick={onConfirm}
-          disabled={saving}
-          className="gap-2 bg-[#1B2A4A] text-white hover:bg-[#243560]"
-        >
-          {saving ? 'Procesando...' : 'Confirmar y continuar'}
-        </Button>
-      </div>
+      )}
     </div>
   )
 }

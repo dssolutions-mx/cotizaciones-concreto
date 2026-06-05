@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
-import { canAccessAllInventoryPlants } from '@/lib/auth/inventoryRoles';
-
-const CLOSURE_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'DOSIFICADOR'];
+import {
+  assertClosurePlantAccessForView,
+  canViewClosureAcrossPlants,
+  canViewInventoryClosure,
+} from '@/lib/auth/inventoryClosureRoles';
 
 /** Historical + ledger audit can exceed default serverless timeout on cold start. */
 export const maxDuration = 120;
@@ -28,11 +30,11 @@ export async function GET(
       .eq('id', user.id)
       .single();
 
-    if (!profile || !CLOSURE_ROLES.includes(profile.role)) {
+    if (!profile || !canViewInventoryClosure(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
-    if (!canAccessAllInventoryPlants(profile.role)) {
+    if (!canViewClosureAcrossPlants(profile.role)) {
       const { data: closureRow } = await supabase
         .from('inventory_closures')
         .select('plant_id')
@@ -41,8 +43,10 @@ export async function GET(
       if (!closureRow) {
         return NextResponse.json({ error: 'Cierre no encontrado' }, { status: 404 });
       }
-      if (closureRow.plant_id !== profile.plant_id) {
-        return NextResponse.json({ error: 'Sin permisos para este cierre' }, { status: 403 });
+      try {
+        assertClosurePlantAccessForView(profile, closureRow.plant_id);
+      } catch (e) {
+        return NextResponse.json({ error: (e as Error).message }, { status: 403 });
       }
     }
 
