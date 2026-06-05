@@ -27,7 +27,7 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge'
 import { z } from 'zod'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { fetchMuestraById } from '@/services/qualityMuestraService'
+import { fetchMuestraById, updateMuestraDimension } from '@/services/qualityMuestraService'
 import { createEnsayo } from '@/services/qualityEnsayoService'
 import type { MuestraWithRelations } from '@/types/quality'
 import {
@@ -242,6 +242,7 @@ function NuevoEnsayoContent() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sr3Parsing, setSr3Parsing] = useState(false)
+  const [dimChoice, setDimChoice] = useState<number | null>(null)
 
   const muestraId = searchParams.get('muestra')
 
@@ -264,6 +265,20 @@ function NuevoEnsayoContent() {
   const hasCarga =
     typeof watchCarga === 'number' && !Number.isNaN(watchCarga) && watchCarga > 0
 
+  const storedCubeSide = (muestra as { cube_side_cm?: number } | null)?.cube_side_cm
+  const storedDiameter = (muestra as { diameter_cm?: number } | null)?.diameter_cm
+  const needsDimension =
+    !!muestra &&
+    ((muestra.tipo_muestra === 'CUBO' && !(typeof storedCubeSide === 'number' && storedCubeSide > 0)) ||
+      (muestra.tipo_muestra === 'CILINDRO' && !(typeof storedDiameter === 'number' && storedDiameter > 0)))
+  const dimensionOptions =
+    muestra?.tipo_muestra === 'CUBO'
+      ? [5, 10, 15]
+      : muestra?.tipo_muestra === 'CILINDRO'
+        ? [10, 15]
+        : []
+  const dimensionUnitLabel = muestra?.tipo_muestra === 'CUBO' ? 'lado (cm)' : 'diámetro (cm)'
+
   const handleCargaChange = useCallback(
     (value: number) => {
       form.setValue('carga_kg', value)
@@ -271,24 +286,21 @@ function NuevoEnsayoContent() {
 
       let resistencia = 0
       if (muestra.tipo_muestra === 'CILINDRO') {
+        const stored = (muestra as { diameter_cm?: number }).diameter_cm
         const diameter =
-          typeof (muestra as { diameter_cm?: number }).diameter_cm === 'number' &&
-          (muestra as { diameter_cm?: number }).diameter_cm! > 0
-            ? (muestra as { diameter_cm: number }).diameter_cm
-            : 15
-        const radius = diameter / 2
-        const area = Math.PI * radius * radius
-        const isMRTest = false
-        resistencia = value / area
-        if (isMRTest) resistencia = resistencia * 0.13
+          typeof stored === 'number' && stored > 0 ? stored : dimChoice ?? 0
+        if (diameter > 0) {
+          const radius = diameter / 2
+          const area = Math.PI * radius * radius
+          resistencia = value / area
+        }
       } else if (muestra.tipo_muestra === 'CUBO') {
-        const side =
-          typeof (muestra as { cube_side_cm?: number }).cube_side_cm === 'number' &&
-          (muestra as { cube_side_cm?: number }).cube_side_cm! > 0
-            ? (muestra as { cube_side_cm: number }).cube_side_cm
-            : 15
-        const area = side * side
-        resistencia = value / area
+        const stored = (muestra as { cube_side_cm?: number }).cube_side_cm
+        const side = typeof stored === 'number' && stored > 0 ? stored : dimChoice ?? 0
+        if (side > 0) {
+          const area = side * side
+          resistencia = value / area
+        }
       } else if (muestra.tipo_muestra === 'VIGA') {
         resistencia = (45 * value) / 3375
       }
@@ -302,7 +314,7 @@ function NuevoEnsayoContent() {
       }
       form.setValue('porcentaje_cumplimiento', porcentaje, { shouldValidate: true })
     },
-    [form, muestra]
+    [form, muestra, dimChoice]
   )
 
   useEffect(() => {
@@ -320,6 +332,14 @@ function NuevoEnsayoContent() {
       cargaInputRef.current.focus()
     }
   }, [loading, muestra])
+
+  // Recompute preview when the technician registers a missing dimension.
+  useEffect(() => {
+    if (dimChoice && hasCarga) {
+      handleCargaChange(watchCarga)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dimChoice])
 
   const fetchMuestraDetails = async (id: string) => {
     try {
@@ -376,6 +396,25 @@ function NuevoEnsayoContent() {
       if (!muestra?.muestreo_id) {
         setSubmitError('No se pudo obtener la información completa del muestreo.')
         return
+      }
+
+      // Strict capture: a legacy sample without a registered dimension must have it
+      // set now (no silent default). Persist it to the muestra so the resistance and
+      // correction factor are computed against the real size.
+      if (needsDimension) {
+        if (!(typeof dimChoice === 'number' && dimChoice > 0)) {
+          setSubmitError(
+            muestra.tipo_muestra === 'CUBO'
+              ? 'Selecciona el tamaño del cubo (cm) antes de registrar el ensayo.'
+              : 'Selecciona el diámetro del cilindro (cm) antes de registrar el ensayo.'
+          )
+          return
+        }
+        await updateMuestraDimension(
+          muestra.id,
+          muestra.tipo_muestra as 'CILINDRO' | 'CUBO',
+          dimChoice
+        )
       }
 
       const ensayo = await createEnsayo({
@@ -594,6 +633,42 @@ function NuevoEnsayoContent() {
                           )}
                         />
                       </div>
+
+                      {needsDimension && (
+                        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                            <div className="flex-1">
+                              <p className="text-sm font-semibold text-amber-900">
+                                Registra el tamaño de la muestra
+                              </p>
+                              <p className="mt-0.5 text-xs text-amber-700">
+                                Esta muestra no tiene {dimensionUnitLabel} registrado. Selecciónalo
+                                para calcular la resistencia y el factor de corrección correctos.
+                              </p>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {dimensionOptions.map((opt) => (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => setDimChoice(opt)}
+                                    className={cn(
+                                      'rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
+                                      dimChoice === opt
+                                        ? 'border-stone-900 bg-stone-900 text-white'
+                                        : 'border-stone-300 bg-white text-stone-700 hover:bg-stone-50'
+                                    )}
+                                  >
+                                    {muestra?.tipo_muestra === 'CUBO'
+                                      ? `${opt}×${opt} cm`
+                                      : `Ø ${opt} cm`}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       <FormField
                         control={form.control}

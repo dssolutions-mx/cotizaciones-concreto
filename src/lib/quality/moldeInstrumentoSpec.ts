@@ -44,11 +44,48 @@ export function applyMoldeDimensionsToPlannedSample(
   return sample;
 }
 
-/** Resolve persisted cube side / diameter with UI defaults. */
+/**
+ * Resolve cube side / diameter for resolving the spec of ALREADY-STORED data
+ * (e.g. recomputing a spec for a legacy ensayo). Uses 15 as last-resort fallback.
+ * Do NOT use this when creating new muestras — use requireSpecimenDimensionsForInsert.
+ */
 export function resolvePersistedCubeSideCm(cubeSide: number | null | undefined): number {
   return typeof cubeSide === 'number' && cubeSide > 0 ? cubeSide : 15;
 }
 
 export function resolvePersistedDiameterCm(diameter: number | null | undefined): number {
   return typeof diameter === 'number' && diameter > 0 ? diameter : 15;
+}
+
+export type SpecimenDimensionInput = {
+  tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
+  diameter_cm?: number | null;
+  cube_side_cm?: number | null;
+};
+
+/**
+ * Strict capture: returns the dimensions to persist for a NEW muestra, and throws
+ * a clear error if the required dimension was not registered. No silent defaults.
+ */
+export function requireSpecimenDimensionsForInsert(s: SpecimenDimensionInput): {
+  diameter_cm: number | null;
+  cube_side_cm: number | null;
+} {
+  if (s.tipo_muestra === 'CILINDRO') {
+    if (!(typeof s.diameter_cm === 'number' && s.diameter_cm > 0)) {
+      throw new Error(
+        'Falta el diámetro del cilindro. Selecciona el diámetro (cm) de cada muestra antes de guardar.',
+      );
+    }
+    return { diameter_cm: s.diameter_cm, cube_side_cm: null };
+  }
+  if (s.tipo_muestra === 'CUBO') {
+    if (!(typeof s.cube_side_cm === 'number' && s.cube_side_cm > 0)) {
+      throw new Error(
+        'Falta el lado del cubo. Selecciona el tamaño (cm) de cada muestra antes de guardar.',
+      );
+    }
+    return { diameter_cm: null, cube_side_cm: s.cube_side_cm };
+  }
+  return { diameter_cm: null, cube_side_cm: null };
 }

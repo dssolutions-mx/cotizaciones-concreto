@@ -15,6 +15,7 @@ import {
 import { format, subDays, subMonths } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { formatDate, createSafeDate } from '@/lib/utils';
+import { requireSpecimenDimensionsForInsert } from '@/lib/quality/moldeInstrumentoSpec';
 
 // Muestras
 export async function fetchMuestraById(id: string) {
@@ -139,6 +140,40 @@ export async function updateMuestraEstado(
   }
 }
 
+/**
+ * Persist the specimen dimension on a muestra. Used when a legacy sample lacks
+ * its registered size and the technician sets it at test time (no silent default).
+ */
+export async function updateMuestraDimension(
+  id: string,
+  tipo: 'CILINDRO' | 'CUBO',
+  valueCm: number
+) {
+  if (!(typeof valueCm === 'number' && valueCm > 0)) {
+    throw new Error('Dimensión inválida: debe ser un número mayor a 0.');
+  }
+  const patch =
+    tipo === 'CUBO'
+      ? { cube_side_cm: valueCm, diameter_cm: null }
+      : { diameter_cm: valueCm, cube_side_cm: null };
+  try {
+    const { data, error } = await supabase
+      .from('muestras')
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      throw handleError(error, 'Error updating muestra dimension');
+    }
+    return data;
+  } catch (error) {
+    console.error('Error in updateMuestraDimension:', error);
+    throw error;
+  }
+}
+
 /** Bulk-archive pending samples whose scheduled date is before the cutoff (date-only field). */
 export async function archiveStaleTests(cutoffDays = 60): Promise<number> {
   try {
@@ -219,9 +254,12 @@ export async function addSampleToMuestreo(
     // Generate identification based on existing pattern
     const baseDateStr = formatDate(muestreo.fecha_muestreo, 'yyyy-MM-dd');
     const counter = (existingSamples?.length || 0) + 1;
+    // Strict capture: requires the dimension to be registered (no silent default).
+    const sampleDims = requireSpecimenDimensionsForInsert(sampleData);
+
     const idClas = sampleData.tipo_muestra === 'VIGA' ? 'MR' : 'FC';
-    const diameterSuffix = sampleData.tipo_muestra === 'CILINDRO' && sampleData.diameter_cm ? `-D${sampleData.diameter_cm}` : '';
-    const cubeSuffix = sampleData.tipo_muestra === 'CUBO' && sampleData.cube_side_cm ? `-S${sampleData.cube_side_cm}` : '';
+    const diameterSuffix = sampleData.tipo_muestra === 'CILINDRO' ? `-D${sampleDims.diameter_cm}` : '';
+    const cubeSuffix = sampleData.tipo_muestra === 'CUBO' ? `-S${sampleDims.cube_side_cm}` : '';
     const identification = `${idClas}-${baseDateStr.replace(/-/g, '')}-${String(counter).padStart(3, '0')}${diameterSuffix}${cubeSuffix}`;
 
     // Get user's timezone - this should be the timezone where the operation is happening
@@ -271,8 +309,8 @@ export async function addSampleToMuestreo(
       event_timezone: userTimezone,
       estado: 'PENDIENTE',
       created_at: new Date().toISOString(),
-      diameter_cm: sampleData.tipo_muestra === 'CILINDRO' ? (sampleData.diameter_cm ?? 15) : null,
-      cube_side_cm: sampleData.tipo_muestra === 'CUBO' ? (sampleData.cube_side_cm ?? 15) : null,
+      diameter_cm: sampleDims.diameter_cm,
+      cube_side_cm: sampleDims.cube_side_cm,
     };
 
     // Insert the sample

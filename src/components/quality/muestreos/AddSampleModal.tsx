@@ -27,11 +27,7 @@ import { cn } from '@/lib/utils';
 import { addSampleToMuestreo } from '@/services/qualityMuestraService';
 import { useToast } from '@/components/ui/use-toast';
 import { createSafeDate } from '@/lib/utils';
-import {
-  defaultSpecimenDimensionsForTipo,
-  resolvePersistedCubeSideCm,
-  resolvePersistedDiameterCm,
-} from '@/lib/quality/moldeInstrumentoSpec';
+import { defaultSpecimenDimensionsForTipo } from '@/lib/quality/moldeInstrumentoSpec';
 
 type PlannedSample = {
   id: string;
@@ -97,14 +93,8 @@ export default function AddSampleModal({
       await addSampleToMuestreo(muestreoId, {
         tipo_muestra: sample.tipo_muestra,
         fecha_programada_ensayo: sample.fecha_programada_ensayo,
-        diameter_cm:
-          sample.tipo_muestra === 'CILINDRO'
-            ? resolvePersistedDiameterCm(sample.diameter_cm)
-            : undefined,
-        cube_side_cm:
-          sample.tipo_muestra === 'CUBO'
-            ? resolvePersistedCubeSideCm(sample.cube_side_cm)
-            : undefined,
+        diameter_cm: sample.tipo_muestra === 'CILINDRO' ? sample.diameter_cm : undefined,
+        cube_side_cm: sample.tipo_muestra === 'CUBO' ? sample.cube_side_cm : undefined,
         age_days: sample.age_days,
         age_hours: sample.age_hours,
       });

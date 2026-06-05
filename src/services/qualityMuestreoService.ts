@@ -19,8 +19,7 @@ import { formatDate, createSafeDate } from '@/lib/utils';
 import { roundScalarForMeasurand } from '@/lib/quality/muestreoFieldMeasurements';
 import {
   applyMoldeDimensionsToPlannedSample,
-  resolvePersistedCubeSideCm,
-  resolvePersistedDiameterCm,
+  requireSpecimenDimensionsForInsert,
 } from '@/lib/quality/moldeInstrumentoSpec';
 
 // UI planning type for explicit sample creation (duplicate kept local to service)
@@ -484,12 +483,10 @@ export async function createMuestreoWithSamples(
         if (moldeNombre) {
           s = applyMoldeDimensionsToPlannedSample(s, moldeNombre);
         }
-        if (s.tipo_muestra === 'CUBO') {
-          s.cube_side_cm = resolvePersistedCubeSideCm(s.cube_side_cm);
-        }
-        if (s.tipo_muestra === 'CILINDRO') {
-          s.diameter_cm = resolvePersistedDiameterCm(s.diameter_cm);
-        }
+        // Strict capture: requires the dimension to be registered (no silent default).
+        const dims = requireSpecimenDimensionsForInsert(s);
+        s.diameter_cm = dims.diameter_cm ?? undefined;
+        s.cube_side_cm = dims.cube_side_cm ?? undefined;
         return s;
       });
 
@@ -502,10 +499,8 @@ export async function createMuestreoWithSamples(
         const baseTs = new Date(baseSamplingTimestamp);
 
         const idClas = s.tipo_muestra === 'VIGA' ? 'MR' : 'FC';
-        const diameterSuffix =
-          s.tipo_muestra === 'CILINDRO' ? `-D${resolvePersistedDiameterCm(s.diameter_cm)}` : '';
-        const cubeSuffix =
-          s.tipo_muestra === 'CUBO' ? `-S${resolvePersistedCubeSideCm(s.cube_side_cm)}` : '';
+        const diameterSuffix = s.tipo_muestra === 'CILINDRO' ? `-D${s.diameter_cm}` : '';
+        const cubeSuffix = s.tipo_muestra === 'CUBO' ? `-S${s.cube_side_cm}` : '';
         const identification = `${idClas}-${baseDateStr.replace(/-/g, '')}-${String(counter++).padStart(3, '0')}${diameterSuffix}${cubeSuffix}`;
 
         // Calculate programmed test date preserving the sampling time of day
@@ -546,10 +541,8 @@ export async function createMuestreoWithSamples(
           event_timezone: userTimezone,
           estado: 'PENDIENTE',
           created_at: new Date().toISOString(),
-          diameter_cm:
-            s.tipo_muestra === 'CILINDRO' ? resolvePersistedDiameterCm(s.diameter_cm) : null,
-          cube_side_cm:
-            s.tipo_muestra === 'CUBO' ? resolvePersistedCubeSideCm(s.cube_side_cm) : null,
+          diameter_cm: s.tipo_muestra === 'CILINDRO' ? s.diameter_cm : null,
+          cube_side_cm: s.tipo_muestra === 'CUBO' ? s.cube_side_cm : null,
           molde_instrumento_id: s.molde_instrumento_id ?? null,
         } as any;
       });
