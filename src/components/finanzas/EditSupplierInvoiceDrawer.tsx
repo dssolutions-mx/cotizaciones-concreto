@@ -122,9 +122,39 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
 
   const removeItem = (key: string) => {
     const row = items.find(i => i.key === key)
-    if (row?.line_source === 'entry') return
-    if (row?.id) setDeletedIds(prev => [...prev, row.id!])
+    if (!row) return
+    if (row.line_source === 'entry') {
+      const msg =
+        '¿Quitar esta recepción de la factura? La entrada volverá a pendientes de facturar. ' +
+        'Si es la única línea, se eliminará la factura completa en CxP.'
+      if (!window.confirm(msg)) return
+    }
+    if (row.id) setDeletedIds(prev => [...prev, row.id!])
     setItems(prev => prev.filter(i => i.key !== key))
+  }
+
+  const deleteEntireInvoice = async () => {
+    if (!invoiceMeta) return
+    const msg =
+      `¿Eliminar por completo la factura ${invoiceMeta.invoice_number}? ` +
+      'Se quitarán todas las líneas y la recepción quedará disponible para facturar de nuevo. ' +
+      'Solo es posible si no hay pagos ni notas de crédito aplicadas.'
+    if (!window.confirm(msg)) return
+
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/ap/invoices/${invoiceMeta.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) {
+        toast.error(data.error ?? 'No se pudo eliminar la factura')
+        return
+      }
+      toast.success(`Factura ${invoiceMeta.invoice_number} eliminada`)
+      onOpenChange(false)
+      onSuccess()
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleSubmit = async () => {
@@ -182,6 +212,12 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
       const data = await res.json()
       if (!res.ok) {
         toast.error(data.error ?? 'Error al guardar')
+        return
+      }
+      if (data.invoice_deleted) {
+        toast.success(`Factura ${invoiceMeta.invoice_number} eliminada (sin líneas restantes)`)
+        onOpenChange(false)
+        onSuccess()
         return
       }
       toast.success(`Factura ${invoiceMeta.invoice_number} actualizada`)
@@ -296,8 +332,10 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
                       {it.cost_category === 'fleet'
                         ? <Truck className="h-3.5 w-3.5 text-blue-500 shrink-0" />
                         : <Package className="h-3.5 w-3.5 text-emerald-600 shrink-0" />}
-                      {it.line_source === 'manual' && (
-                        <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-800">Sin entrada</span>
+                      {it.line_source === 'manual' ? (
+                        <span className="text-[10px] px-1 rounded bg-amber-100 text-amber-800 shrink-0">Sin entrada</span>
+                      ) : (
+                        <span className="text-[10px] px-1 rounded bg-sky-100 text-sky-800 shrink-0">Recepción</span>
                       )}
                       {it.line_source === 'manual' ? (
                         <Input
@@ -317,11 +355,14 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
                         onChange={e => setItems(prev => prev.map(row => row.key === it.key ? { ...row, amount: e.target.value } : row))}
                         className="w-28 h-7 text-xs bg-white tabular-nums"
                       />
-                      {it.line_source === 'manual' && (
-                        <button type="button" onClick={() => removeItem(it.key)} className="text-stone-400 hover:text-red-600">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeItem(it.key)}
+                        className="text-stone-400 hover:text-red-600 shrink-0"
+                        title={it.line_source === 'entry' ? 'Quitar recepción de esta factura' : 'Eliminar línea manual'}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                     {it.line_source === 'manual' && (
                       <Select
@@ -376,6 +417,16 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
               disabled={loading}
             >
               {loading ? 'Guardando…' : 'Guardar ajustes'}
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full border-red-200 text-red-800 hover:bg-red-50"
+              onClick={() => void deleteEntireInvoice()}
+              disabled={loading}
+            >
+              Eliminar factura completa
             </Button>
           </div>
         )}

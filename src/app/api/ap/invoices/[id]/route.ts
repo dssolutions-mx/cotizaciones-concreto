@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
+import { canWriteApInvoices } from '@/lib/ap/apInvoiceRoles'
+import {
+  deleteEntireSupplierInvoice,
+  deleteSupplierInvoiceItems,
+} from '@/lib/ap/deleteSupplierInvoiceItems'
 import {
   buildInvoiceTotalsFromBody,
   deriveInvoiceSource,
   normalizeInvoiceItems,
 } from '@/lib/ap/normalizeInvoicePayload'
 import { roundMoney } from '@/lib/ap/invoiceTotals'
-
-const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
 
 // ── GET /api/ap/invoices/[id] ────────────────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -18,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-    if (!profile || !ALLOWED_ROLES.includes(profile.role)) {
+    if (!profile || !canWriteApInvoices(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
     }
 
@@ -69,7 +72,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
 
     const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-    if (!profile || !ALLOWED_ROLES.includes(profile.role)) {
+    if (!profile || !canWriteApInvoices(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
     }
 
@@ -120,25 +123,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     if (itemIdsToDelete.length > 0) {
-      const { data: toDelete } = await supabase
-        .from('supplier_invoice_items')
-        .select('id, line_source')
-        .eq('invoice_id', id)
-        .in('id', itemIdsToDelete)
-      const blocked = (toDelete ?? []).some(r => r.line_source === 'entry')
-      if (blocked) {
-        return NextResponse.json(
-          { error: 'No se pueden eliminar líneas vinculadas a entradas' },
-          { status: 400 },
-        )
+      const delResult = await deleteSupplierInvoiceItems(supabase, id, itemIdsToDelete)
+      if (!delResult.ok) {
+        return NextResponse.json({ error: delResult.error }, { status: delResult.status })
       }
-      const { error: delErr } = await supabase
-        .from('supplier_invoice_items')
-        .delete()
-        .eq('invoice_id', id)
-        .in('id', itemIdsToDelete)
-        .eq('line_source', 'manual')
-      if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 })
+      if (delResult.invoiceDeleted) {
+        return NextResponse.json({
+          deleted: true,
+          invoice_deleted: true,
+          deleted_item_ids: delResult.deletedItemIds,
+        })
+      }
     }
 
     if (itemUpdates.length > 0) {
@@ -296,6 +291,54 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ invoice })
   } catch (err) {
     console.error('/api/ap/invoices/[id] PATCH error:', err)
+    return NextResponse.json({ error: 'Error interno' }, { status: 500 })
+  }
+}
+
+// ── DELETE /api/ap/invoices/[id] — remove invoice (no payments / NC applied) ─
+export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const { id } = await params
+    const supabase = await createServerSupabaseClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role, plant_id')
+      .eq('id', user.id)
+      .single()
+    if (!profile || !canWriteApInvoices(profile.role)) {
+      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
+    }
+
+    const { data: invoice } = await supabase
+      .from('supplier_invoices')
+      .select('id, plant_id')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (!invoice) {
+      return NextResponse.json({ error: 'Factura no encontrada' }, { status: 404 })
+    }
+
+    if (profile.role === 'PLANT_MANAGER' && profile.plant_id && invoice.plant_id !== profile.plant_id) {
+      return NextResponse.json({ error: 'Sin permisos para esta planta' }, { status: 403 })
+    }
+
+    const result = await deleteEntireSupplierInvoice(supabase, id)
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status })
+    }
+
+    return NextResponse.json({
+      success: true,
+      invoice_deleted: result.invoiceDeleted,
+      deleted_item_ids: result.deletedItemIds,
+      remaining_item_count: result.remainingItemCount,
+    })
+  } catch (err) {
+    console.error('/api/ap/invoices/[id] DELETE error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
   }
 }

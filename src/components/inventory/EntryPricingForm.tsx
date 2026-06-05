@@ -34,6 +34,7 @@ import {
   formatPaymentTermsLabel,
 } from '@/lib/procurement/paymentTermsLabels'
 import { KG_PER_METRIC_TON } from '@/lib/inventory/massUnits'
+import EntrySupplierInvoiceLinks from '@/components/finanzas/EntrySupplierInvoiceLinks'
 
 interface EntryPricingFormProps {
   entry: MaterialEntry
@@ -1351,6 +1352,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel, onAfterCr
               )}
             </div>
           </div>
+
+          {canEditSupplierPaymentTerms && (
+            <EntrySupplierInvoiceLinks entryId={entry.id} className="mt-3" />
+          )}
         </section>
 
         {/* ─── 3. OC de material (collapsible) ─── */}
