@@ -54,12 +54,12 @@ function sanitizeEntrySearchTerm(raw: string | undefined): string | null {
   return t.length >= 2 ? t : null;
 }
 
-async function applyMaterialEntryTextSearch(
+/** Build PostgREST `.or()` filter for text search (async lookups only — apply `.or()` on the caller). */
+async function buildMaterialEntrySearchOrFilter(
   supabase: { from: (table: string) => any },
-  query: any,
   term: string,
   plantId?: string
-): Promise<any> {
+): Promise<string> {
   const pattern = `%${term}%`;
   const orParts = [
     `entry_number.ilike.${pattern}`,
@@ -103,7 +103,7 @@ async function applyMaterialEntryTextSearch(
   }
   if (materialIds.length) orParts.push(`material_id.in.(${materialIds.join(',')})`);
 
-  return query.or(orParts.join(','));
+  return orParts.join(',');
 }
 
 async function profileCanAccessMaterialEntryPlant(
@@ -636,12 +636,12 @@ export async function GET(request: NextRequest) {
     const searchTerm = sanitizeEntrySearchTerm(queryParams.q);
     if (searchTerm) {
       console.log('Filtering by text search:', searchTerm);
-      query = await applyMaterialEntryTextSearch(
+      const searchOrFilter = await buildMaterialEntrySearchOrFilter(
         supabase,
-        query,
         searchTerm,
         queryParams.plant_id || undefined
       );
+      query = query.or(searchOrFilter);
     }
 
     console.log('About to execute query...');
