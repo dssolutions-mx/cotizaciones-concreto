@@ -46,6 +46,66 @@ async function attachEntryDocumentCounts(
   }));
 }
 
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Strip PostgREST-sensitive chars; require at least 2 chars for text search. */
+function sanitizeEntrySearchTerm(raw: string | undefined): string | null {
+  const t = (raw ?? '').trim().replace(/[%_,()]/g, '').slice(0, 80);
+  return t.length >= 2 ? t : null;
+}
+
+async function applyMaterialEntryTextSearch(
+  supabase: { from: (table: string) => any },
+  query: any,
+  term: string,
+  plantId?: string
+): Promise<any> {
+  const pattern = `%${term}%`;
+  const orParts = [
+    `entry_number.ilike.${pattern}`,
+    `supplier_invoice.ilike.${pattern}`,
+    `fleet_invoice.ilike.${pattern}`,
+    `notes.ilike.${pattern}`,
+  ];
+
+  let supplierQ = supabase.from('suppliers').select('id').limit(30);
+  if (/^\d+$/.test(term)) {
+    supplierQ = supplierQ.or(`provider_number.eq.${term},name.ilike.${pattern}`);
+  } else {
+    supplierQ = supplierQ.ilike('name', pattern);
+  }
+  if (plantId) supplierQ = supplierQ.eq('plant_id', plantId);
+
+  let poQ = supabase.from('purchase_orders').select('id').ilike('po_number', pattern).limit(30);
+  if (plantId) poQ = poQ.eq('plant_id', plantId);
+
+  let materialQ = supabase
+    .from('materials')
+    .select('id')
+    .or(`material_name.ilike.${pattern},material_code.ilike.${pattern}`)
+    .limit(30);
+  if (plantId) materialQ = materialQ.eq('plant_id', plantId);
+
+  const [{ data: suppliers }, { data: pos }, { data: materials }] = await Promise.all([
+    supplierQ,
+    poQ,
+    materialQ,
+  ]);
+
+  const supplierIds = [...new Set((suppliers || []).map((s: { id: string }) => s.id))];
+  const poIds = [...new Set((pos || []).map((p: { id: string }) => p.id))];
+  const materialIds = [...new Set((materials || []).map((m: { id: string }) => m.id))];
+
+  if (supplierIds.length) orParts.push(`supplier_id.in.(${supplierIds.join(',')})`);
+  if (poIds.length) {
+    orParts.push(`po_id.in.(${poIds.join(',')})`);
+    orParts.push(`fleet_po_id.in.(${poIds.join(',')})`);
+  }
+  if (materialIds.length) orParts.push(`material_id.in.(${materialIds.join(',')})`);
+
+  return query.or(orParts.join(','));
+}
+
 async function profileCanAccessMaterialEntryPlant(
   supabase: { from: (table: string) => any },
   profile: { role: string; plant_id?: string | null; business_unit_id?: string | null },
@@ -341,6 +401,8 @@ export async function GET(request: NextRequest) {
       entry_id: searchParams.get('entry_id') || undefined,
       /** Proveedor de material (material_entries.supplier_id) — contable / filtros. */
       supplier_id: searchParams.get('supplier_id') || undefined,
+      /** Texto libre: proveedor, factura/remisión, OC, material, número de entrada. */
+      q: searchParams.get('q') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
       include: searchParams.get('include') || undefined,
@@ -498,15 +560,31 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+    const hasReceptionDateRange =
+      !!queryParams.date_from &&
+      !!queryParams.date_to &&
+      ISO_DAY.test(queryParams.date_from) &&
+      ISO_DAY.test(queryParams.date_to);
+
     const hasReviewedDateRange =
+      !hasReceptionDateRange &&
       !!queryParams.reviewed_from &&
       !!queryParams.reviewed_to &&
-      isoDay.test(queryParams.reviewed_from) &&
-      isoDay.test(queryParams.reviewed_to);
+      ISO_DAY.test(queryParams.reviewed_from) &&
+      ISO_DAY.test(queryParams.reviewed_to);
 
-    // Date filtering: reviewed_at range (UTC day bounds) OR entry_date (existing behavior)
-    if (hasReviewedDateRange) {
+    // Date filtering: entry_date (recepción) takes priority over reviewed_at
+    if (hasReceptionDateRange) {
+      console.log(
+        'Filtering by entry_date (reception):',
+        queryParams.date_from,
+        'to',
+        queryParams.date_to
+      );
+      query = query
+        .gte('entry_date', queryParams.date_from)
+        .lte('entry_date', queryParams.date_to);
+    } else if (hasReviewedDateRange) {
       console.log(
         'Filtering by reviewed_at range (UTC):',
         queryParams.reviewed_from,
@@ -516,9 +594,6 @@ export async function GET(request: NextRequest) {
       query = query
         .gte('reviewed_at', `${queryParams.reviewed_from}T00:00:00.000Z`)
         .lte('reviewed_at', `${queryParams.reviewed_to}T23:59:59.999Z`);
-    } else if (queryParams.date_from && queryParams.date_to) {
-      console.log('Filtering by date range:', queryParams.date_from, 'to', queryParams.date_to);
-      query = query.gte('entry_date', queryParams.date_from).lte('entry_date', queryParams.date_to);
     } else if (queryParams.date) {
       console.log('Filtering by specific date:', queryParams.date);
       query = query.eq('entry_date', queryParams.date);
@@ -558,15 +633,28 @@ export async function GET(request: NextRequest) {
       query = query.eq('supplier_id', queryParams.supplier_id);
     }
 
+    const searchTerm = sanitizeEntrySearchTerm(queryParams.q);
+    if (searchTerm) {
+      console.log('Filtering by text search:', searchTerm);
+      query = await applyMaterialEntryTextSearch(
+        supabase,
+        query,
+        searchTerm,
+        queryParams.plant_id || undefined
+      );
+    }
+
     console.log('About to execute query...');
 
-    // Get material entries with pagination (newest reviewed first when using reviewed_at filter)
     const orderedQuery = hasReviewedDateRange
       ? query
           .order('reviewed_at', { ascending: false })
           .order('entry_date', { ascending: false })
           .order('entry_time', { ascending: false })
-      : query.order('entry_date', { ascending: false }).order('entry_time', { ascending: false });
+      : query
+          .order('entry_date', { ascending: false })
+          .order('entry_time', { ascending: false })
+          .order('reviewed_at', { ascending: false, nullsFirst: false });
 
     const { data: entries, error: entriesError } = await orderedQuery.range(
       parseInt(queryParams.offset),

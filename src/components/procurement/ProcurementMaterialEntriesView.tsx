@@ -335,6 +335,8 @@ export default function ProcurementMaterialEntriesView({
   const [reviewedSuppliers, setReviewedSuppliers] = useState<Array<{ id: string; name: string }>>([])
   const [reviewedMaterialId, setReviewedMaterialId] = useState('')
   const [reviewedMaterials, setReviewedMaterials] = useState<Array<{ id: string; material_name: string }>>([])
+  const [reviewedSearchInput, setReviewedSearchInput] = useState('')
+  const [debouncedReviewedSearch, setDebouncedReviewedSearch] = useState('')
   const prevReviewedPlantRef = useRef(effectivePlantId)
   const [inspectionMode, setInspectionMode] = useState<'view' | 'edit'>('view')
   const [plantConceptDraft, setPlantConceptDraft] = useState('')
@@ -600,6 +602,13 @@ export default function ProcurementMaterialEntriesView({
     }
   }, [authInitialized, authProfile, entradasView, canReviewPricing, replaceQuery])
 
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedReviewedSearch(reviewedSearchInput.trim())
+    }, 300)
+    return () => window.clearTimeout(handle)
+  }, [reviewedSearchInput])
+
   const buildReviewedFetchParams = useCallback(
     (offset: number, limit: number) => {
       const params = new URLSearchParams({
@@ -612,6 +621,7 @@ export default function ProcurementMaterialEntriesView({
       if (poIdFromUrl) params.set('po_id', poIdFromUrl)
       if (reviewedSupplierId) params.set('supplier_id', reviewedSupplierId)
       if (effectiveReviewedMaterialId) params.set('material_id', effectiveReviewedMaterialId)
+      if (debouncedReviewedSearch.length >= 2) params.set('q', debouncedReviewedSearch)
       if (reviewedDateRange.from && reviewedDateRange.to) {
         params.set('date_from', format(reviewedDateRange.from, 'yyyy-MM-dd'))
         params.set('date_to', format(reviewedDateRange.to, 'yyyy-MM-dd'))
@@ -623,6 +633,7 @@ export default function ProcurementMaterialEntriesView({
       poIdFromUrl,
       reviewedSupplierId,
       effectiveReviewedMaterialId,
+      debouncedReviewedSearch,
       reviewedDateRange.from,
       reviewedDateRange.to,
     ]
@@ -711,6 +722,7 @@ export default function ProcurementMaterialEntriesView({
     prevReviewedPlantRef.current = effectivePlantId
     setReviewedSupplierId('')
     setReviewedMaterialId('')
+    setReviewedSearchInput('')
     replaceQuery({ material_id: null })
   }, [effectivePlantId, replaceQuery])
 
@@ -849,6 +861,7 @@ export default function ProcurementMaterialEntriesView({
     reviewedReloadNonce,
     reviewedSupplierId,
     effectiveReviewedMaterialId,
+    debouncedReviewedSearch,
   ])
 
   const loadMoreReviewed = useCallback(async () => {
@@ -1377,6 +1390,26 @@ export default function ProcurementMaterialEntriesView({
                 {/* Filters row */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 border-t border-stone-200/70">
                   <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide shrink-0">Filtrar por</span>
+                  <div className="relative min-w-[min(100%,240px)] w-full sm:w-[240px]">
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400 pointer-events-none" />
+                    <Input
+                      value={reviewedSearchInput}
+                      onChange={(e) => setReviewedSearchInput(e.target.value)}
+                      placeholder="Proveedor, factura, remisión, OC…"
+                      className="h-8 pl-8 pr-8 text-xs border-stone-300 bg-white"
+                      aria-label="Buscar en entradas revisadas"
+                    />
+                    {reviewedSearchInput ? (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700"
+                        onClick={() => setReviewedSearchInput('')}
+                        title="Limpiar búsqueda"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="flex items-center gap-1.5 min-w-0">
                     <Select
                       value={reviewedSupplierId || '__all__'}

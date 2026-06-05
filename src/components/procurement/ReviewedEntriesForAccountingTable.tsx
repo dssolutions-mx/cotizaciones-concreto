@@ -275,7 +275,7 @@ export default function ReviewedEntriesForAccountingTable({
   if (!loading && entries.length === 0) {
     return (
       <div className="py-12 text-center text-stone-500 text-sm">
-        No hay entradas revisadas con recepción en este período.
+        No hay entradas revisadas con recepción en este período (ajuste fechas o búsqueda).
       </div>
     )
   }
