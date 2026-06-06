@@ -347,6 +347,21 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       )
     }
 
+    const { data: stillThere } = await supabase
+      .from('supplier_invoices')
+      .select('id')
+      .eq('id', id)
+      .maybeSingle()
+    if (stillThere) {
+      return NextResponse.json(
+        {
+          error:
+            'La factura sigue visible después del borrado. Contacte soporte si el problema persiste.',
+        },
+        { status: 500 },
+      )
+    }
+
     return NextResponse.json({
       success: true,
       invoice_deleted: true,
