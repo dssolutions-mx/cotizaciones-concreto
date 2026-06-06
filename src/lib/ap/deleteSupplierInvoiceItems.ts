@@ -23,6 +23,87 @@ type InvoiceItemRow = {
   amount: number
 }
 
+const RLS_DELETE_HINT =
+  'No se eliminó ningún registro en la base de datos. Verifique permisos RLS o use el cliente de servicio en el API.'
+
+async function deleteInvoiceItemsByIds(
+  supabase: SupabaseClient,
+  invoiceId: string,
+  itemIds: string[],
+): Promise<{ ok: true; ids: string[] } | { ok: false; error: string; status: number }> {
+  const { data, error } = await supabase
+    .from('supplier_invoice_items')
+    .delete()
+    .eq('invoice_id', invoiceId)
+    .in('id', itemIds)
+    .select('id')
+
+  if (error) {
+    return { ok: false, error: error.message, status: 500 }
+  }
+
+  const ids = (data ?? []).map(row => String(row.id))
+  if (ids.length < itemIds.length) {
+    return {
+      ok: false,
+      error: `No se pudieron eliminar las líneas de la factura. ${RLS_DELETE_HINT}`,
+      status: 403,
+    }
+  }
+
+  return { ok: true, ids }
+}
+
+async function deletePayableById(
+  supabase: SupabaseClient,
+  payableId: string,
+): Promise<{ ok: true; id: string } | { ok: false; error: string; status: number }> {
+  const { data, error } = await supabase
+    .from('payables')
+    .delete()
+    .eq('id', payableId)
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    return { ok: false, error: error.message, status: 500 }
+  }
+  if (!data) {
+    return {
+      ok: false,
+      error: `No se pudo eliminar el registro de cuentas por pagar. ${RLS_DELETE_HINT}`,
+      status: 403,
+    }
+  }
+
+  return { ok: true, id: data.id }
+}
+
+async function deleteInvoiceById(
+  supabase: SupabaseClient,
+  invoiceId: string,
+): Promise<{ ok: true; id: string } | { ok: false; error: string; status: number }> {
+  const { data, error } = await supabase
+    .from('supplier_invoices')
+    .delete()
+    .eq('id', invoiceId)
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    return { ok: false, error: error.message, status: 500 }
+  }
+  if (!data) {
+    return {
+      ok: false,
+      error: `No se pudo eliminar la factura. ${RLS_DELETE_HINT}`,
+      status: 403,
+    }
+  }
+
+  return { ok: true, id: data.id }
+}
+
 async function countPayments(supabase: SupabaseClient, payableId: string): Promise<number> {
   const { count, error } = await supabase
     .from('payments')
@@ -45,8 +126,21 @@ async function countItemCreditAllocations(
   return count ?? 0
 }
 
+async function invoiceStillExists(
+  supabase: SupabaseClient,
+  invoiceId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('supplier_invoices')
+    .select('id')
+    .eq('id', invoiceId)
+    .maybeSingle()
+  return Boolean(data)
+}
+
 /**
  * Removes invoice line(s), matching payable_items, and recalculates or deletes the invoice header.
+ * Use a service-role client for mutations — user-scoped clients may silently delete 0 rows under RLS.
  */
 export async function deleteSupplierInvoiceItems(
   supabase: SupabaseClient,
@@ -136,29 +230,19 @@ export async function deleteSupplierInvoiceItems(
   }
 
   for (const row of rows) {
-    if (!row.entry_id) continue
+    if (!row.entry_id || !payable?.id) continue
     const category = row.cost_category === 'fleet' ? 'fleet' : 'material'
-    if (payable?.id) {
-      const { error: piDelErr } = await supabase
-        .from('payable_items')
-        .delete()
-        .eq('payable_id', payable.id)
-        .eq('entry_id', row.entry_id)
-        .eq('cost_category', category)
-      if (piDelErr) {
-        return { ok: false, error: piDelErr.message, status: 500 }
-      }
-    }
+    await supabase
+      .from('payable_items')
+      .delete()
+      .eq('payable_id', payable.id)
+      .eq('entry_id', row.entry_id)
+      .eq('cost_category', category)
   }
 
-  const { error: delErr } = await supabase
-    .from('supplier_invoice_items')
-    .delete()
-    .eq('invoice_id', invoiceId)
-    .in('id', uniqueIds)
-
-  if (delErr) {
-    return { ok: false, error: delErr.message, status: 500 }
+  const itemDel = await deleteInvoiceItemsByIds(supabase, invoiceId, uniqueIds)
+  if (!itemDel.ok) {
+    return itemDel
   }
 
   const { data: remaining, error: remErr } = await supabase
@@ -167,13 +251,7 @@ export async function deleteSupplierInvoiceItems(
     .eq('invoice_id', invoiceId)
 
   if (remErr) {
-    return {
-      ok: true,
-      invoiceId,
-      deletedItemIds: uniqueIds,
-      invoiceDeleted: false,
-      remainingItemCount: -1,
-    }
+    return { ok: false, error: remErr.message, status: 500 }
   }
 
   const remainingRows = remaining ?? []
@@ -182,16 +260,25 @@ export async function deleteSupplierInvoiceItems(
     await supabase.from('supplier_invoice_retentions').delete().eq('invoice_id', invoiceId)
     if (payable?.id) {
       await supabase.from('payable_items').delete().eq('payable_id', payable.id)
-      await supabase.from('payables').delete().eq('id', payable.id)
+      const payDel = await deletePayableById(supabase, payable.id)
+      if (!payDel.ok) {
+        return payDel
+      }
     }
-    const { error: invDelErr } = await supabase.from('supplier_invoices').delete().eq('id', invoiceId)
-    if (invDelErr) {
+
+    const invDel = await deleteInvoiceById(supabase, invoiceId)
+    if (!invDel.ok) {
+      return invDel
+    }
+
+    if (await invoiceStillExists(supabase, invoiceId)) {
       return {
         ok: false,
-        error: `Líneas eliminadas pero no se pudo borrar la factura vacía: ${invDelErr.message}`,
+        error: 'La factura sigue existiendo después del intento de eliminación',
         status: 500,
       }
     }
+
     return {
       ok: true,
       invoiceId,
@@ -218,7 +305,6 @@ export async function deleteSupplierInvoiceItems(
     retention_iva_rate: ivaRetRate,
     retention_iva_amount: ivaRetAmt,
     discountAmt,
-    taxableBase,
   } = buildInvoiceTotalsFromBody(totalsPayload, subtotal)
 
   const invoiceSource = deriveInvoiceSource(
@@ -228,7 +314,7 @@ export async function deleteSupplierInvoiceItems(
     })),
   )
 
-  const { error: updErr } = await supabase
+  const { data: updated, error: updErr } = await supabase
     .from('supplier_invoices')
     .update({
       subtotal,
@@ -242,13 +328,22 @@ export async function deleteSupplierInvoiceItems(
       source: invoiceSource,
     })
     .eq('id', invoiceId)
+    .select('id')
+    .maybeSingle()
 
   if (updErr) {
     return { ok: false, error: updErr.message, status: 500 }
   }
+  if (!updated) {
+    return {
+      ok: false,
+      error: 'No se pudieron actualizar los totales de la factura',
+      status: 403,
+    }
+  }
 
   if (payable?.id) {
-    await supabase
+    const { data: payUpdated, error: payUpdErr } = await supabase
       .from('payables')
       .update({
         subtotal,
@@ -257,6 +352,19 @@ export async function deleteSupplierInvoiceItems(
         vat_rate: Number(existing.vat_rate),
       })
       .eq('id', payable.id)
+      .select('id')
+      .maybeSingle()
+
+    if (payUpdErr) {
+      return { ok: false, error: payUpdErr.message, status: 500 }
+    }
+    if (!payUpdated) {
+      return {
+        ok: false,
+        error: 'No se pudieron actualizar los totales de cuentas por pagar',
+        status: 403,
+      }
+    }
   }
 
   return {
@@ -301,6 +409,7 @@ export async function deleteEntireSupplierInvoice(
         status: 400,
       }
     }
+
     await supabase.from('supplier_invoice_retentions').delete().eq('invoice_id', invoiceId)
     const { data: payables } = await supabase
       .from('payables')
@@ -308,9 +417,17 @@ export async function deleteEntireSupplierInvoice(
       .eq('invoice_id', invoiceId)
     for (const p of payables ?? []) {
       await supabase.from('payable_items').delete().eq('payable_id', p.id)
-      await supabase.from('payables').delete().eq('id', p.id)
+      const payDel = await deletePayableById(supabase, p.id)
+      if (!payDel.ok) {
+        return payDel
+      }
     }
-    await supabase.from('supplier_invoices').delete().eq('id', invoiceId)
+
+    const invDel = await deleteInvoiceById(supabase, invoiceId)
+    if (!invDel.ok) {
+      return invDel
+    }
+
     return {
       ok: true,
       invoiceId,
@@ -320,5 +437,19 @@ export async function deleteEntireSupplierInvoice(
     }
   }
 
-  return deleteSupplierInvoiceItems(supabase, invoiceId, ids)
+  const result = await deleteSupplierInvoiceItems(supabase, invoiceId, ids)
+  if (!result.ok) {
+    return result
+  }
+
+  if (!result.invoiceDeleted && (await invoiceStillExists(supabase, invoiceId))) {
+    return {
+      ok: false,
+      error:
+        'No se eliminó la factura completa. Quite primero todas las líneas o verifique permisos.',
+      status: 403,
+    }
+  }
+
+  return result
 }

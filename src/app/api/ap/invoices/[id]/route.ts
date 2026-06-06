@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { canWriteApInvoices } from '@/lib/ap/apInvoiceRoles'
+import { getApServiceClient } from '@/lib/ap/apWriteClient'
 import {
   deleteEntireSupplierInvoice,
   deleteSupplierInvoiceItems,
@@ -123,7 +124,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     if (itemIdsToDelete.length > 0) {
-      const delResult = await deleteSupplierInvoiceItems(supabase, id, itemIdsToDelete)
+      const writeClient = getApServiceClient()
+      if (!writeClient.ok) {
+        return NextResponse.json({ error: writeClient.error }, { status: 503 })
+      }
+      const delResult = await deleteSupplierInvoiceItems(writeClient.client, id, itemIdsToDelete)
       if (!delResult.ok) {
         return NextResponse.json({ error: delResult.error }, { status: delResult.status })
       }
@@ -326,14 +331,25 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Sin permisos para esta planta' }, { status: 403 })
     }
 
-    const result = await deleteEntireSupplierInvoice(supabase, id)
+    const writeClient = getApServiceClient()
+    if (!writeClient.ok) {
+      return NextResponse.json({ error: writeClient.error }, { status: 503 })
+    }
+
+    const result = await deleteEntireSupplierInvoice(writeClient.client, id)
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
+    }
+    if (!result.invoiceDeleted) {
+      return NextResponse.json(
+        { error: 'La factura no se eliminó por completo. Revise líneas, pagos o notas de crédito.' },
+        { status: 409 },
+      )
     }
 
     return NextResponse.json({
       success: true,
-      invoice_deleted: result.invoiceDeleted,
+      invoice_deleted: true,
       deleted_item_ids: result.deletedItemIds,
       remaining_item_count: result.remainingItemCount,
     })

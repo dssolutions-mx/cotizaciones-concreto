@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server'
 import { canAccessAllInventoryPlants, canCompleteEntryPricingReview } from '@/lib/auth/inventoryRoles'
 import { AP_INVOICE_WRITE_ROLES } from '@/lib/ap/apInvoiceRoles'
 import { deleteSupplierInvoiceItems } from '@/lib/ap/deleteSupplierInvoiceItems'
+import { getApServiceClient } from '@/lib/ap/apWriteClient'
 
 function canManageEntryInvoiceLinks(role: string | undefined): boolean {
   if (!role) return false
@@ -152,6 +153,11 @@ export async function DELETE(
       byInvoice.set(invId, list)
     }
 
+    const writeClient = getApServiceClient()
+    if (!writeClient.ok) {
+      return NextResponse.json({ error: writeClient.error }, { status: 503 })
+    }
+
     const results: Array<{
       invoice_id: string
       deleted_item_ids: string[]
@@ -159,7 +165,7 @@ export async function DELETE(
     }> = []
 
     for (const [invoiceId, ids] of byInvoice) {
-      const delResult = await deleteSupplierInvoiceItems(supabase, invoiceId, ids)
+      const delResult = await deleteSupplierInvoiceItems(writeClient.client, invoiceId, ids)
       if (!delResult.ok) {
         return NextResponse.json({ error: delResult.error }, { status: delResult.status })
       }

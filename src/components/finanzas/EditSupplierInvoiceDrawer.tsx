@@ -149,6 +149,10 @@ export default function EditSupplierInvoiceDrawer({ open, onOpenChange, invoice,
         toast.error(data.error ?? 'No se pudo eliminar la factura')
         return
       }
+      if (!data.invoice_deleted) {
+        toast.error('La factura no se eliminó. Puede tener pagos, NC aplicadas o restricciones de permisos.')
+        return
+      }
       toast.success(`Factura ${invoiceMeta.invoice_number} eliminada`)
       onOpenChange(false)
       onSuccess()
