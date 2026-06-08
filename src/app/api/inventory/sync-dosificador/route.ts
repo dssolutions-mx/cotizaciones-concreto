@@ -130,6 +130,11 @@ export async function POST(request: NextRequest) {
       end_date?: string
       material_ids?: string[]
       items?: DosificadorSyncPlanItem[]
+      explicit_targets?: Array<{
+        material_id: string
+        target_stock_kg: number
+        material_name?: string
+      }>
       dry_run?: boolean
     }
 
@@ -159,9 +164,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const admin = createAdminClientForApi()
+    const explicitTargets = body.explicit_targets?.filter(
+      (t) => t.material_id && Number.isFinite(Number(t.target_stock_kg)),
+    )
+
     let items = body.items
-    if (!items?.length) {
-      const admin = createAdminClientForApi()
+    if (!explicitTargets?.length && !items?.length) {
       const analysis = await analyzeDosificadorSync(admin, {
         plantId: targetPlantId,
         startDate,
@@ -183,11 +192,15 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    const admin = createAdminClientForApi()
     const result = await applyDosificadorSync(admin, {
       plantId: targetPlantId,
       items: items ?? [],
       materialIds: body.material_ids,
+      explicitTargets: explicitTargets?.map((t) => ({
+        material_id: t.material_id,
+        target_stock_kg: Number(t.target_stock_kg),
+        material_name: t.material_name,
+      })),
     })
 
     return NextResponse.json({ success: true, plant_id: targetPlantId, ...result })

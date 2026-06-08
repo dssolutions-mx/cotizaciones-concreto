@@ -44,6 +44,7 @@ import type {
 } from '@/types/materialLedger'
 import type { MaterialEntry, InventoryMovement } from '@/types/inventory'
 import { MATERIAL_LEDGER_EPSILON_KG } from '@/types/materialLedger'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,7 +125,7 @@ export default function MaterialAuditSheet({
   /** Dosificador: movimientos y existencias, sin montos (MXN). */
   const hideMoney = profile?.role === 'DOSIFICADOR'
 
-  const [tab, setTab] = useState<'movements' | 'consumos' | 'mismatch' | 'variances'>('movements')
+  const [tab, setTab] = useState<'movements' | 'mismatch' | 'variances'>('movements')
   const [sinceCutover, setSinceCutover] = useState(false)
   const [startDate, setStartDate] = useState('2026-04-01')
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -138,8 +139,6 @@ export default function MaterialAuditSheet({
   const [variances, setVariances] = useState<MaterialLedgerVarianceRow[]>([])
   const [variancesLoading, setVariancesLoading] = useState(false)
 
-  const [syncAnalysis, setSyncAnalysis] = useState<DosificadorSyncAnalysis | null>(null)
-  const [syncLoading, setSyncLoading] = useState(false)
   const [syncApplying, setSyncApplying] = useState(false)
   const [syncConfirmOpen, setSyncConfirmOpen] = useState(false)
   const [syncSelectedIds, setSyncSelectedIds] = useState<Set<string>>(new Set())
@@ -173,10 +172,21 @@ export default function MaterialAuditSheet({
       if (!res.ok || !json.success) {
         throw new Error(json.error || 'No se pudieron cargar las varianzas')
       }
-      setVariances(json.variances ?? [])
+      const rows = (json.variances ?? []) as MaterialLedgerVarianceRow[]
+      setVariances(rows)
+      const alignableIds = rows
+        .filter(
+          (v) =>
+            v.theoretical_final_kg != null &&
+            v.stock_vs_theoretical != null &&
+            Math.abs(v.stock_vs_theoretical) > EPS,
+        )
+        .map((v) => v.material_id)
+      setSyncSelectedIds(new Set(alignableIds))
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Error de varianzas')
       setVariances([])
+      setSyncSelectedIds(new Set())
     } finally {
       setVariancesLoading(false)
     }
@@ -186,44 +196,33 @@ export default function MaterialAuditSheet({
     if (open && tab === 'variances') void loadVariances()
   }, [open, tab, loadVariances])
 
-  const syncQueryParams = useCallback(() => {
-    const params = new URLSearchParams({
-      plant_id: plantId,
-      start_date: startDate,
-      end_date: endDate,
-    })
-    return params
-  }, [plantId, startDate, endDate])
-
-  const loadSyncAnalysis = useCallback(async () => {
-    if (!plantId) return
-    setSyncLoading(true)
-    try {
-      const res = await fetch(`/api/inventory/sync-dosificador?${syncQueryParams()}`)
-      const json = await res.json()
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || 'No se pudo analizar la alineación')
+  const effectiveLedgerRange = useMemo(() => {
+    if (
+      ledger &&
+      activeMaterial?.id &&
+      ledger.material.id === activeMaterial.id &&
+      ledger.date_range
+    ) {
+      return {
+        start: ledger.date_range.start,
+        end: ledger.date_range.end,
       }
-      const analysis = json as DosificadorSyncAnalysis & {
-        can_apply?: boolean
-        success: boolean
-      }
-      setSyncAnalysis({
-        plant_id: analysis.plant_id,
-        date_range: analysis.date_range,
-        items: analysis.items ?? [],
-        skipped: analysis.skipped ?? [],
-        already_aligned_count: analysis.already_aligned_count ?? 0,
-      })
-      setSyncSelectedIds(new Set((analysis.items ?? []).map((i) => i.material_id)))
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Error al analizar')
-      setSyncAnalysis(null)
-      setSyncSelectedIds(new Set())
-    } finally {
-      setSyncLoading(false)
     }
-  }, [plantId, syncQueryParams])
+    return { start: startDate, end: endDate }
+  }, [ledger, activeMaterial?.id, startDate, endDate])
+
+  const syncQueryParams = useCallback(
+    (range?: { start: string; end: string }) => {
+      const r = range ?? effectiveLedgerRange
+      const params = new URLSearchParams({
+        plant_id: plantId,
+        start_date: r.start,
+        end_date: r.end,
+      })
+      return params
+    },
+    [plantId, effectiveLedgerRange],
+  )
 
   const loadLedger = useCallback(async () => {
     if (!plantId || !activeMaterial?.id) {
@@ -232,7 +231,6 @@ export default function MaterialAuditSheet({
     }
     const materialIdRequested = activeMaterial.id
     const gen = ++ledgerFetchGenRef.current
-    setLedger(null)
     setLedgerError(null)
     setLedgerLoading(true)
     try {
@@ -268,19 +266,31 @@ export default function MaterialAuditSheet({
   }, [open, activeMaterial?.id, loadLedger])
 
   const applySync = useCallback(
-    async (materialIds?: string[]) => {
+    async (
+      materialIds?: string[],
+      opts?: {
+        explicitTargets?: Array<{
+          material_id: string
+          target_stock_kg: number
+          material_name?: string
+        }>
+        dateRange?: { start: string; end: string }
+      },
+    ) => {
       if (!plantId) return
+      const range = opts?.dateRange ?? effectiveLedgerRange
       setSyncApplying(true)
+      const pendingToast = toast.loading('Alineando inventario vivo al teórico…')
       try {
-        const res = await fetch(`/api/inventory/sync-dosificador?${syncQueryParams()}`, {
+        const res = await fetch(`/api/inventory/sync-dosificador?${syncQueryParams(range)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             plant_id: plantId,
-            start_date: startDate,
-            end_date: endDate,
+            start_date: range.start,
+            end_date: range.end,
             material_ids: materialIds,
-            items: syncAnalysis?.items,
+            explicit_targets: opts?.explicitTargets,
           }),
         })
         const json = await res.json()
@@ -289,36 +299,31 @@ export default function MaterialAuditSheet({
         }
         const updated = (json.updated ?? []) as DosificadorSyncAnalysis['items']
         const failed = (json.failed ?? []) as Array<{ material_name: string; error: string }>
+        toast.dismiss(pendingToast)
         if (updated.length > 0) {
-          toast.success(`Stock alineado en ${updated.length} material(es)`)
+          const row = updated[0]
+          toast.success(
+            row
+              ? `Inventario vivo: ${fmtKg(row.live_stock_kg)} → ${fmtKg(row.target_stock_kg)} kg`
+              : `Inventario vivo actualizado en ${updated.length} material(es)`,
+          )
+        } else if (failed.length === 0) {
+          toast.message('Sin cambios: el servidor no detectó diferencia aplicable.')
         }
         if (failed.length > 0) {
-          toast.error(`Falló en ${failed.length}: ${failed[0]?.material_name}`)
+          toast.error(`Falló en ${failed.length}: ${failed[0]?.material_name} — ${failed[0]?.error}`)
         }
-        await Promise.all([loadVariances(), loadSyncAnalysis(), loadLedger()])
+        await Promise.all([loadVariances(), loadLedger()])
       } catch (e) {
+        toast.dismiss(pendingToast)
         toast.error(e instanceof Error ? e.message : 'Error al aplicar')
       } finally {
         setSyncApplying(false)
         setSyncConfirmOpen(false)
       }
     },
-    [
-      plantId,
-      startDate,
-      endDate,
-      syncQueryParams,
-      syncAnalysis?.items,
-      loadVariances,
-      loadSyncAnalysis,
-      loadLedger,
-    ],
+    [plantId, effectiveLedgerRange, syncQueryParams, loadVariances, loadLedger],
   )
-
-  const alignActiveMaterialToTheoretical = useCallback(async () => {
-    if (!activeMaterial?.id) return
-    await applySync([activeMaterial.id])
-  }, [activeMaterial?.id, applySync])
 
   /** Never show previous material’s ledger while another is selected or loading. */
   useLayoutEffect(() => {
@@ -341,6 +346,75 @@ export default function MaterialAuditSheet({
   }, [ledgerForView])
 
   const reconciliation = ledgerForView?.reconciliation
+
+  const alignActiveMaterialToTheoretical = useCallback(async () => {
+    if (!activeMaterial?.id || !ledgerForView) return
+    const target =
+      ledgerForView.flow?.theoretical_final_stock ?? ledgerForView.reconciliation.theoretical_final_kg
+    const live = ledgerForView.reconciliation.dosificador_stock_kg
+    if (!Number.isFinite(target)) {
+      toast.error('No hay saldo teórico aritmético para este material en el rango.')
+      return
+    }
+    if (Math.abs(target - live) <= EPS) {
+      toast.message('El inventario vivo ya coincide con el teórico aritmético del periodo.')
+      return
+    }
+    await applySync([activeMaterial.id], {
+      dateRange: {
+        start: ledgerForView.date_range.start,
+        end: ledgerForView.date_range.end,
+      },
+      explicitTargets: [
+        {
+          material_id: activeMaterial.id,
+          material_name: activeMaterial.name,
+          target_stock_kg: target,
+        },
+      ],
+    })
+  }, [activeMaterial, ledgerForView, applySync])
+
+  const alignableVariances = useMemo(
+    () =>
+      variances.filter(
+        (v) =>
+          v.theoretical_final_kg != null &&
+          v.stock_vs_theoretical != null &&
+          Math.abs(v.stock_vs_theoretical) > EPS,
+      ),
+    [variances],
+  )
+
+  const toggleAllAlignable = useCallback(
+    (checked: boolean) => {
+      if (checked) {
+        setSyncSelectedIds(new Set(alignableVariances.map((v) => v.material_id)))
+      } else {
+        setSyncSelectedIds(new Set())
+      }
+    },
+    [alignableVariances],
+  )
+
+  const applyBulkAlignment = useCallback(async () => {
+    const selected = alignableVariances.filter((v) => syncSelectedIds.has(v.material_id))
+    if (selected.length === 0) {
+      toast.error('Seleccione al menos un material con varianza aritmética (vivo ≠ teórico).')
+      return
+    }
+    await applySync(
+      selected.map((v) => v.material_id),
+      {
+        dateRange: { start: startDate, end: endDate },
+        explicitTargets: selected.map((v) => ({
+          material_id: v.material_id,
+          material_name: v.material_name,
+          target_stock_kg: v.theoretical_final_kg!,
+        })),
+      },
+    )
+  }, [alignableVariances, syncSelectedIds, applySync, startDate, endDate])
 
   const fetchEntryForPricing = async (entryId: string) => {
     setPricingLoading(true)
@@ -482,6 +556,11 @@ export default function MaterialAuditSheet({
   }
 
   const flow = ledgerForView?.flow
+  const theoreticalKg =
+    flow?.theoretical_final_stock ?? reconciliation?.theoretical_final_kg ?? null
+  const liveKg = reconciliation?.dosificador_stock_kg ?? null
+  const varianceKg = reconciliation?.deltas.stock_vs_theoretical ?? null
+  const varianceIsBad = varianceKg != null && Math.abs(varianceKg) > EPS
 
   return (
     <>
@@ -493,8 +572,9 @@ export default function MaterialAuditSheet({
           <SheetHeader className="text-left space-y-1 pr-8">
             <SheetTitle className="text-stone-900">Auditoría de material</SheetTitle>
             <SheetDescription>
-              Conciliación dosificador · contabilidad · FIFO. Rango acotado (90 días salvo “desde
-              cutover”).
+              Comprueba que el inventario vivo en planta coincida con el saldo teórico aritmético del
+              periodo (apertura, entradas, consumos, ajustes). Rango acotado a 90 días salvo “desde
+              conteo inicial”.
             </SheetDescription>
           </SheetHeader>
 
@@ -503,7 +583,7 @@ export default function MaterialAuditSheet({
               <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-sm text-amber-950 flex gap-2 items-start">
                 <ShieldAlert className="h-4 w-4 shrink-0 mt-0.5" />
                 <span>
-                  Elija un material en la pestaña <strong>Materiales con varianza</strong> o cierre y
+                  Elija un material en la pestaña <strong>Alineación masiva</strong> o cierre y
                   abra desde una fila del inventario.
                 </span>
               </div>
@@ -611,28 +691,55 @@ export default function MaterialAuditSheet({
             {ledgerError && activeMaterial && <p className="text-sm text-red-700">{ledgerError}</p>}
 
             {reconciliation && activeMaterial && (
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border border-stone-200 bg-white p-3">
-                  <p className="text-xs font-semibold uppercase text-stone-500">Dosificador</p>
-                  <p className="text-2xl font-mono font-semibold">{fmtKg(reconciliation.dosificador_stock_kg)} kg</p>
-                  <p className="text-[11px] text-stone-500 mt-1">
-                    Stock actual en <code className="text-[10px]">material_inventory</code>
-                  </p>
-                  {deltaBadge(reconciliation.deltas.stock_vs_theoretical)}
-                  {flow && (
-                    <p className="text-[11px] text-stone-600 mt-2">
-                      Teórico final período: {fmtKg(flow.theoretical_final_stock)} · Varianza flujo:{' '}
-                      {fmtKg(Number(flow.variance))}
-                    </p>
+              <div className="space-y-3">
+                <div
+                  className={cn(
+                    'rounded-lg border bg-white p-4',
+                    varianceIsBad ? 'border-amber-300 bg-amber-50/40' : 'border-stone-200',
                   )}
-                  {canApplyDosificadorSync &&
-                    reconciliation.deltas.stock_vs_theoretical != null &&
-                    Math.abs(reconciliation.deltas.stock_vs_theoretical) > EPS && (
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                    Conciliación aritmética
+                  </p>
+                  <p className="text-[11px] text-stone-600 mt-1 mb-3">
+                    El inventario vivo debe igualar el saldo teórico calculado por movimientos en el
+                    rango (no es el rol dosificador ni un reporte de compras).
+                  </p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-medium text-stone-500">Inventario vivo</p>
+                      <p className="text-2xl font-mono font-semibold text-stone-900">
+                        {liveKg != null ? `${fmtKg(liveKg)} kg` : '—'}
+                      </p>
+                      <p className="text-[11px] text-stone-500 mt-1">
+                        Stock operativo en planta (<code className="text-[10px]">material_inventory</code>
+                        )
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-stone-500">Teórico aritmético (fin de periodo)</p>
+                      <p className="text-2xl font-mono font-semibold text-stone-900">
+                        {theoreticalKg != null ? `${fmtKg(theoreticalKg)} kg` : '—'}
+                      </p>
+                      <p className="text-[11px] text-stone-500 mt-1">
+                        Apertura + entradas + ajustes − consumos − desperdicio
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-stone-200/80 pt-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-stone-600">Varianza (vivo − teórico):</span>
+                      {deltaBadge(varianceKg)}
+                      {!varianceIsBad && varianceKg != null && (
+                        <span className="text-[11px] text-emerald-800">Coincide</span>
+                      )}
+                    </div>
+                    {canApplyDosificadorSync && varianceIsBad && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="mt-2 h-7 text-xs"
+                        className="h-7 text-xs border-amber-400 bg-white"
                         disabled={syncApplying}
                         onClick={() => void alignActiveMaterialToTheoretical()}
                       >
@@ -641,36 +748,58 @@ export default function MaterialAuditSheet({
                         ) : (
                           <Wrench className="h-3.5 w-3.5 mr-1" />
                         )}
-                        Alinear stock a aritmética
+                        Alinear inventario vivo al teórico
                       </Button>
                     )}
+                  </div>
                 </div>
-                <div className="rounded-lg border border-stone-200 bg-white p-3">
-                  <p className="text-xs font-semibold uppercase text-stone-500">Contabilidad / entradas período</p>
-                  <p className="text-lg font-mono">{fmtKg(reconciliation.accounting_received_kg)} kg</p>
-                  {!hideMoney && (
-                    <>
-                      <p className="text-sm text-stone-700">
-                        {fmtMx(reconciliation.accounting_total_mxn)} en CXP (material)
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-lg border border-stone-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase text-stone-500">Capas FIFO restantes</p>
+                    <p className="text-2xl font-mono font-semibold">{fmtKg(reconciliation.fifo_remaining_kg)} kg</p>
+                    <p className="text-[11px] text-stone-500 mt-1">
+                      Suma de <code className="text-[10px]">remaining_quantity_kg</code> en entradas
+                      activas para costeo.
+                    </p>
+                    <p className="text-[11px] text-stone-500">
+                      Excluidos FIFO: {reconciliation.fifo_excluded_count} · Asignaciones a consumo:{' '}
+                      {reconciliation.fifo_allocation_rows}
+                    </p>
+                    <div className="mt-2 flex items-center gap-2 text-[11px]">
+                      <span className="text-stone-600">Vivo − FIFO:</span>
+                      {deltaBadge(reconciliation.deltas.stock_vs_fifo)}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-stone-200 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase text-stone-500">
+                      Recepciones del período (compras)
+                    </p>
+                    <p className="text-lg font-mono font-semibold">
+                      {fmtKg(reconciliation.accounting_received_kg)} kg
+                    </p>
+                    <p className="text-[11px] text-stone-600 mt-1 leading-relaxed">
+                      Suma de kg en <strong>entradas de material</strong> registradas entre las fechas del
+                      rango. Es volumen recibido en el periodo,{' '}
+                      <strong>no es saldo de inventario</strong> ni debe compararse con el inventario vivo.
+                    </p>
+                    {!hideMoney && (
+                      <>
+                        <p className="text-sm text-stone-700 mt-2">
+                          {fmtMx(reconciliation.accounting_total_mxn)} ligados a CXP (partida material)
+                        </p>
+                        <p className="text-[11px] text-stone-500">
+                          Entradas sin precio revisado: {reconciliation.pending_pricing_entries}
+                        </p>
+                      </>
+                    )}
+                    {hideMoney && (
+                      <p className="text-[11px] text-stone-500 mt-2">
+                        Montos (MXN) y CXP no se muestran para su rol.
                       </p>
-                      <p className="text-[11px] text-stone-500 mt-1">
-                        Pendientes precio: {reconciliation.pending_pricing_entries}
-                      </p>
-                    </>
-                  )}
-                  {hideMoney && (
-                    <p className="text-[11px] text-stone-500 mt-1">Importes (MXN) no disponibles para su rol.</p>
-                  )}
-                  {deltaBadge(reconciliation.deltas.accounting_kg_vs_dosificador)}
-                </div>
-                <div className="rounded-lg border border-stone-200 bg-white p-3">
-                  <p className="text-xs font-semibold uppercase text-stone-500">FIFO restante</p>
-                  <p className="text-2xl font-mono font-semibold">{fmtKg(reconciliation.fifo_remaining_kg)} kg</p>
-                  <p className="text-[11px] text-stone-500 mt-1">
-                    Excluidos FIFO: {reconciliation.fifo_excluded_count} · Asignaciones:{' '}
-                    {reconciliation.fifo_allocation_rows}
-                  </p>
-                  {deltaBadge(reconciliation.deltas.stock_vs_fifo)}
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -680,105 +809,31 @@ export default function MaterialAuditSheet({
                 <TabsTrigger value="movements" disabled={!activeMaterial}>
                   Movimientos
                 </TabsTrigger>
-                <TabsTrigger value="consumos" disabled={!activeMaterial}>
-                  Consumos
-                </TabsTrigger>
                 <TabsTrigger value="mismatch" disabled={!activeMaterial}>
                   Entradas con desfase
                 </TabsTrigger>
-                <TabsTrigger value="variances">Materiales con varianza</TabsTrigger>
+                <TabsTrigger value="variances">Alineación masiva</TabsTrigger>
               </TabsList>
 
               <TabsContent value="movements" className="mt-3 space-y-3">
-                {ledgerForView?.movements && activeMaterial && (
+                {ledgerLoading && activeMaterial && !ledgerForView && (
+                  <Skeleton className="h-40 w-full" />
+                )}
+                {ledgerForView && activeMaterial && (
                   <InventoryMovementsTable
-                    movements={ledgerForView.movements}
+                    movements={ledgerForView.movements ?? []}
                     singleMaterial
                     ledgerMode={!hideMoney}
+                    consumptionDetails={ledgerForView.consumption_details ?? []}
+                    hideConsumptionMoney={hideMoney}
+                    resetFiltersKey={`${activeMaterial.id}:${ledgerForView.date_range.start}:${ledgerForView.date_range.end}`}
+                    onConsumptionNavigate={(remisionDate) => {
+                      const href = `/production-control/remisiones?fecha=${encodeURIComponent(movementDateToFechaParam(remisionDate))}`
+                      onOpenChange(false)
+                      window.setTimeout(() => router.push(href), 200)
+                    }}
                     renderRowActions={(m) => renderMovementActions(m)}
                   />
-                )}
-              </TabsContent>
-
-              <TabsContent value="consumos" className="mt-3">
-                {ledgerLoading && activeMaterial ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : !ledgerForView ? (
-                  <p className="text-sm text-stone-500">Cargue un material primero.</p>
-                ) : ledgerForView.consumption_details.length === 0 ? (
-                  <p className="text-sm text-stone-600">Sin consumos por remisión en este rango.</p>
-                ) : (
-                  <div className="border border-stone-200 rounded-lg overflow-hidden bg-white max-h-[420px] overflow-y-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Remisión</TableHead>
-                          <TableHead>Fecha</TableHead>
-                          <TableHead className="text-right">Teórica</TableHead>
-                          <TableHead className="text-right">Real</TableHead>
-                          <TableHead className="text-right">Δ (real−teórica)</TableHead>
-                          {!hideMoney && (
-                            <>
-                              <TableHead className="text-right">Costo unit.</TableHead>
-                              <TableHead className="text-right">Costo FIFO</TableHead>
-                            </>
-                          )}
-                          <TableHead className="w-[52px]" />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {ledgerForView.consumption_details.map((c, i) => (
-                          <TableRow key={`${c.remision_number}-${i}`}>
-                            <TableCell className="font-mono text-xs">{c.remision_number}</TableCell>
-                            <TableCell>{c.remision_date}</TableCell>
-                            <TableCell className="text-right font-mono">{fmtKg(c.cantidad_teorica)}</TableCell>
-                            <TableCell className="text-right font-mono">{fmtKg(c.cantidad_real)}</TableCell>
-                            <TableCell className="text-right font-mono text-xs">{deltaBadge(c.variance)}</TableCell>
-                            {!hideMoney && (
-                              <>
-                                <TableCell className="text-right font-mono">
-                                  {c.unit_cost_weighted != null ? fmtMx(c.unit_cost_weighted) : '—'}
-                                </TableCell>
-                                <TableCell className="text-right font-mono">
-                                  {c.total_cost_fifo != null ? fmtMx(c.total_cost_fifo) : '—'}
-                                </TableCell>
-                              </>
-                            )}
-                            <TableCell className="text-right">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7"
-                                aria-label="Ver remisiones"
-                                onClick={() => {
-                                  const href = `/production-control/remisiones?fecha=${encodeURIComponent(movementDateToFechaParam(c.remision_date))}`
-                                  onOpenChange(false)
-                                  window.setTimeout(() => router.push(href), 200)
-                                }}
-                              >
-                                <ExternalLink className="h-3.5 w-3.5" />
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                    <div className="flex flex-wrap justify-end gap-4 border-t border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-700">
-                      <span>
-                        Teórica total:{' '}
-                        <span className="font-mono">
-                          {fmtKg(ledgerForView.consumption_details.reduce((s, c) => s + c.cantidad_teorica, 0))}
-                        </span>
-                      </span>
-                      <span>
-                        Real total:{' '}
-                        <span className="font-mono">
-                          {fmtKg(ledgerForView.consumption_details.reduce((s, c) => s + c.cantidad_real, 0))}
-                        </span>
-                      </span>
-                      <span>{ledgerForView.consumption_details.length} remisiones</span>
-                    </div>
-                  </div>
                 )}
               </TabsContent>
 
@@ -869,121 +924,45 @@ export default function MaterialAuditSheet({
               </TabsContent>
 
               <TabsContent value="variances" className="mt-3 space-y-3">
-                <div className="flex flex-wrap gap-2 items-center text-xs text-stone-600">
-                  <span>Rango (máx. 90 días):</span>
-                  <input
-                    type="date"
-                    className="rounded border border-stone-300 px-2 py-1"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                  />
-                  <span>—</span>
-                  <input
-                    type="date"
-                    className="rounded border border-stone-300 px-2 py-1"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void loadVariances()}
-                    disabled={variancesLoading}
-                  >
-                    {variancesLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      'Actualizar'
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={syncLoading || !plantId}
-                    onClick={() => void loadSyncAnalysis()}
-                  >
-                    {syncLoading ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                    ) : (
-                      <Wrench className="h-4 w-4 mr-1" />
-                    )}
-                    Analizar alineación
-                  </Button>
-                </div>
-                {syncAnalysis && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2 text-xs text-stone-700">
-                    <p>
-                      <strong>{syncAnalysis.items.length}</strong> material(es) con stock dosificador distinto
-                      del objetivo · <strong>{syncAnalysis.already_aligned_count}</strong> ya alineados
-                      {syncAnalysis.skipped.length > 0 && (
-                        <>
-                          {' '}
-                          · <strong>{syncAnalysis.skipped.length}</strong> omitidos (sin baseline)
-                        </>
+                <div className="rounded-lg border border-stone-200 bg-white p-3 space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-600">
+                      Alineación masiva
+                    </p>
+                    <p className="text-[11px] text-stone-600 mt-1">
+                      Misma aritmética que la conciliación por material: inventario vivo vs teórico del
+                      periodo. Seleccione filas con Δ vivo/teórico y aplique en lote (sin crear ajustes).
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center text-xs text-stone-600">
+                    <span>Rango (máx. 90 días):</span>
+                    <input
+                      type="date"
+                      className="rounded border border-stone-300 px-2 py-1"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                    />
+                    <span>—</span>
+                    <input
+                      type="date"
+                      className="rounded border border-stone-300 px-2 py-1"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void loadVariances()}
+                      disabled={variancesLoading}
+                    >
+                      {variancesLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        'Actualizar'
                       )}
-                    </p>
-                    <p className="text-[11px] text-stone-600">
-                      Actualiza <code className="text-[10px]">material_inventory</code> directamente (sin
-                      ajuste contable). Objetivo: saldo reconciliado post-corte o, si no hay apertura, teórico
-                      aritmético del rango.
-                    </p>
-                    {syncAnalysis.items.length > 0 && (
-                      <div className="border border-stone-200 rounded-md bg-white max-h-[200px] overflow-y-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              {canApplyDosificadorSync && <TableHead className="w-8" />}
-                              <TableHead>Material</TableHead>
-                              <TableHead className="text-right">Actual</TableHead>
-                              <TableHead className="text-right">Objetivo</TableHead>
-                              <TableHead className="text-right">Δ</TableHead>
-                              <TableHead>Fuente</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {syncAnalysis.items.map((item) => (
-                              <TableRow key={item.material_id}>
-                                {canApplyDosificadorSync && (
-                                  <TableCell>
-                                    <Checkbox
-                                      checked={syncSelectedIds.has(item.material_id)}
-                                      onCheckedChange={(checked) => {
-                                        setSyncSelectedIds((prev) => {
-                                          const next = new Set(prev)
-                                          if (checked) next.add(item.material_id)
-                                          else next.delete(item.material_id)
-                                          return next
-                                        })
-                                      }}
-                                      aria-label={`Seleccionar ${item.material_name}`}
-                                    />
-                                  </TableCell>
-                                )}
-                                <TableCell className="font-medium">{item.material_name}</TableCell>
-                                <TableCell className="text-right font-mono">
-                                  {fmtKg(item.live_stock_kg)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono">
-                                  {fmtKg(item.target_stock_kg)}
-                                </TableCell>
-                                <TableCell className="text-right font-mono">
-                                  {item.delta_kg >= 0 ? '+' : ''}
-                                  {fmtKg(item.delta_kg)}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge variant="outline" className="text-[10px]">
-                                    {item.target_source === 'reconciled' ? 'Reconciliado' : 'Teórico'}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
-                    {canApplyDosificadorSync && syncAnalysis.items.length > 0 && (
+                    </Button>
+                    {canApplyDosificadorSync && alignableVariances.length > 0 && (
                       <Button
                         type="button"
                         size="sm"
@@ -992,30 +971,53 @@ export default function MaterialAuditSheet({
                       >
                         {syncApplying ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                        ) : null}
-                        Aplicar alineación ({syncSelectedIds.size})
+                        ) : (
+                          <Wrench className="h-4 w-4 mr-1" />
+                        )}
+                        Alinear seleccionados ({syncSelectedIds.size})
                       </Button>
                     )}
-                    {!canApplyDosificadorSync && syncAnalysis.items.length > 0 && (
-                      <p className="text-[11px] text-amber-900">
-                        Solo gerencia de planta u operaciones puede aplicar cambios.
-                      </p>
-                    )}
                   </div>
-                )}
+                  {!canApplyDosificadorSync && alignableVariances.length > 0 && (
+                    <p className="text-[11px] text-amber-900">
+                      Solo gerencia de planta u operaciones puede aplicar alineación masiva.
+                    </p>
+                  )}
+                  {alignableVariances.length > 0 && (
+                    <p className="text-xs text-stone-700">
+                      <strong>{alignableVariances.length}</strong> material(es) con inventario vivo ≠ teórico
+                      aritmético en este rango.
+                    </p>
+                  )}
+                </div>
                 {variancesLoading ? (
                   <Skeleton className="h-40 w-full" />
                 ) : variances.length === 0 ? (
-                  <p className="text-sm text-stone-600">No hay materiales fuera de tolerancia en este rango.</p>
+                  <p className="text-sm text-stone-600">
+                    No hay materiales fuera de tolerancia en este rango (vivo, FIFO o precios pendientes).
+                  </p>
                 ) : (
-                  <div className="border border-stone-200 rounded-lg overflow-hidden bg-white max-h-[360px] overflow-y-auto">
+                  <div className="border border-stone-200 rounded-lg overflow-hidden bg-white max-h-[420px] overflow-y-auto">
                     <Table>
                       <TableHeader>
                         <TableRow>
+                          {canApplyDosificadorSync && (
+                            <TableHead className="w-8">
+                              <Checkbox
+                                checked={
+                                  alignableVariances.length > 0 &&
+                                  alignableVariances.every((v) => syncSelectedIds.has(v.material_id))
+                                }
+                                onCheckedChange={(checked) => toggleAllAlignable(Boolean(checked))}
+                                aria-label="Seleccionar todos los alineables"
+                                disabled={alignableVariances.length === 0}
+                              />
+                            </TableHead>
+                          )}
                           <TableHead>Material</TableHead>
-                          <TableHead className="text-right">Stock</TableHead>
+                          <TableHead className="text-right">Inventario vivo</TableHead>
                           <TableHead className="text-right">Teórico</TableHead>
-                          <TableHead className="text-right">Δ stock/teórico</TableHead>
+                          <TableHead className="text-right">Δ vivo/teórico</TableHead>
                           <TableHead className="text-right">Δ FIFO</TableHead>
                           {!hideMoney && (
                             <TableHead className="text-right">Pend. precio</TableHead>
@@ -1023,31 +1025,77 @@ export default function MaterialAuditSheet({
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {variances.map((v) => (
-                          <TableRow
-                            key={v.material_id}
-                            className="cursor-pointer hover:bg-stone-50"
-                            onClick={() => {
-                              setActiveMaterial({ id: v.material_id, name: v.material_name })
-                              setTab('movements')
-                            }}
-                          >
-                            <TableCell className="font-medium">{v.material_name}</TableCell>
-                            <TableCell className="text-right font-mono">{fmtKg(v.dosificador_stock_kg)}</TableCell>
-                            <TableCell className="text-right font-mono">
-                              {v.theoretical_final_kg != null ? fmtKg(v.theoretical_final_kg) : '—'}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs">
-                              {v.stock_vs_theoretical != null ? fmtKg(v.stock_vs_theoretical) : '—'}
-                            </TableCell>
-                            <TableCell className="text-right font-mono text-xs">
-                              {v.fifo_vs_stock != null ? fmtKg(v.fifo_vs_stock) : '—'}
-                            </TableCell>
-                            {!hideMoney && (
-                              <TableCell className="text-right">{v.pending_pricing_count}</TableCell>
-                            )}
-                          </TableRow>
-                        ))}
+                        {variances.map((v) => {
+                          const isAlignable =
+                            v.theoretical_final_kg != null &&
+                            v.stock_vs_theoretical != null &&
+                            Math.abs(v.stock_vs_theoretical) > EPS
+                          return (
+                            <TableRow
+                              key={v.material_id}
+                              className={cn(
+                                'hover:bg-stone-50',
+                                isAlignable ? 'bg-amber-50/30' : undefined,
+                              )}
+                            >
+                              {canApplyDosificadorSync && (
+                                <TableCell
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="align-middle"
+                                >
+                                  {isAlignable ? (
+                                    <Checkbox
+                                      checked={syncSelectedIds.has(v.material_id)}
+                                      onCheckedChange={(checked) => {
+                                        setSyncSelectedIds((prev) => {
+                                          const next = new Set(prev)
+                                          if (checked) next.add(v.material_id)
+                                          else next.delete(v.material_id)
+                                          return next
+                                        })
+                                      }}
+                                      aria-label={`Seleccionar ${v.material_name}`}
+                                    />
+                                  ) : null}
+                                </TableCell>
+                              )}
+                              <TableCell
+                                className="font-medium cursor-pointer"
+                                onClick={() => {
+                                  setActiveMaterial({ id: v.material_id, name: v.material_name })
+                                  setTab('movements')
+                                }}
+                              >
+                                {v.material_name}
+                              </TableCell>
+                              <TableCell
+                                className="text-right font-mono cursor-pointer"
+                                onClick={() => {
+                                  setActiveMaterial({ id: v.material_id, name: v.material_name })
+                                  setTab('movements')
+                                }}
+                              >
+                                {fmtKg(v.dosificador_stock_kg)}
+                              </TableCell>
+                              <TableCell className="text-right font-mono">
+                                {v.theoretical_final_kg != null ? fmtKg(v.theoretical_final_kg) : '—'}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs">
+                                {v.stock_vs_theoretical != null ? (
+                                  deltaBadge(v.stock_vs_theoretical)
+                                ) : (
+                                  '—'
+                                )}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-xs">
+                                {v.fifo_vs_stock != null ? fmtKg(v.fifo_vs_stock) : '—'}
+                              </TableCell>
+                              {!hideMoney && (
+                                <TableCell className="text-right">{v.pending_pricing_count}</TableCell>
+                              )}
+                            </TableRow>
+                          )
+                        })}
                       </TableBody>
                     </Table>
                   </div>
@@ -1111,11 +1159,11 @@ export default function MaterialAuditSheet({
       <AlertDialog open={syncConfirmOpen} onOpenChange={setSyncConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Alinear stock dosificador</AlertDialogTitle>
+            <AlertDialogTitle>Alinear inventario vivo al teórico</AlertDialogTitle>
             <AlertDialogDescription>
               Se actualizará <code>material_inventory.current_stock</code> en{' '}
-              {syncSelectedIds.size} material(es) para igualar el saldo reconciliado o teórico del rango (
-              {startDate} — {endDate}). No se crearán filas de ajuste.
+              {syncSelectedIds.size} material(es) para igualar el teórico aritmético del rango (
+              {startDate} — {endDate}). No se crearán filas de ajuste de inventario.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1124,7 +1172,7 @@ export default function MaterialAuditSheet({
               disabled={syncApplying}
               onClick={(e) => {
                 e.preventDefault()
-                void applySync([...syncSelectedIds])
+                void applyBulkAlignment()
               }}
             >
               {syncApplying ? 'Aplicando…' : 'Confirmar'}

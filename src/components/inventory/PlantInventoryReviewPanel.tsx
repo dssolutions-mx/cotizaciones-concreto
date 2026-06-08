@@ -176,7 +176,7 @@ export default function PlantInventoryReviewPanel({
               setAuditOpen(true)
             }}
           >
-            Materiales con varianza
+            Alineación masiva
           </Button>
         </div>
       </CardHeader>

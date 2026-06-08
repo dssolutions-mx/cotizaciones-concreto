@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { fetchMaterialLedgerRemisionData } from '@/lib/inventory/fetchMaterialLedgerRemisionData';
 import { mergeLedgerSyntheticFifoPairs } from '@/lib/inventory/mergeLedgerOpeningMovement';
 import { FIFO_OPENING_FROM_INITIAL_COUNT_PREFIX } from '@/lib/inventory/insertOpeningFifoLayerForInitialCount';
 import { InventoryDashboardService } from '@/services/inventoryDashboardService';
@@ -266,17 +267,7 @@ export async function fetchMaterialLedger(
     allocationRows = count ?? 0;
   }
 
-  const { data: periodRemisiones } = await supabase
-    .from('remisiones')
-    .select('id, fecha, remision_number')
-    .eq('plant_id', raw.plantId)
-    .gte('fecha', range.start)
-    .lte('fecha', range.end)
-    .order('fecha', { ascending: false });
-
-  const remisionIds = periodRemisiones?.map((r) => r.id) || [];
-
-  const [entriesRes, adjRes, rmRes, wasteIdRes, wasteLegacyRes] = await Promise.all([
+  const [entriesRes, adjRes, remisionLedgerData, wasteIdRes, wasteLegacyRes] = await Promise.all([
     supabase
       .from('material_entries')
       .select(
@@ -297,15 +288,13 @@ export async function fetchMaterialLedger(
       .gte('adjustment_date', range.start)
       .lte('adjustment_date', range.end)
       .order('adjustment_date', { ascending: false }),
-    remisionIds.length > 0
-      ? supabase
-          .from('remision_materiales')
-          .select(
-            'id, material_id, remision_id, cantidad_real, cantidad_teorica, unit_cost_weighted, total_cost_fifo, fifo_allocated_at'
-          )
-          .eq('material_id', raw.materialId)
-          .in('remision_id', remisionIds)
-      : Promise.resolve({ data: [] as any[] }),
+    fetchMaterialLedgerRemisionData(supabase, {
+      plantId: raw.plantId,
+      materialId: raw.materialId,
+      materialCode: matRow.material_code ?? null,
+      startDate: range.start,
+      endDate: range.end,
+    }),
     supabase
       .from('waste_materials')
       .select('id, material_id, material_code, waste_amount, fecha, remision_number, notes, waste_reason')
@@ -324,6 +313,9 @@ export async function fetchMaterialLedger(
           .lte('fecha', range.end)
       : Promise.resolve({ data: [] as any[] }),
   ]);
+
+  const periodRemisiones = remisionLedgerData.periodRemisiones;
+  const remisionMaterialRows = remisionLedgerData.remisionMaterials;
 
   const seenWaste = new Set<string>();
   const wasteRows: any[] = [];
@@ -346,25 +338,26 @@ export async function fetchMaterialLedger(
 
   let movements = dash.buildLedgerMovements(
     material,
-    rmRes.data || [],
+    remisionMaterialRows,
     entriesForLedger,
     adjRes.data || [],
-    periodRemisiones || [],
+    periodRemisiones,
     wasteRows
   );
   movements = mergeLedgerSyntheticFifoPairs(movements);
   movements = await enrichRemisionMovementsWithFifoPendingKg(
     supabase,
     movements,
-    rmRes.data || [],
+    remisionMaterialRows,
     opening.opening_fifo_entry_id,
   );
 
-  const consumptionDetails = (rmRes.data || []).map((rm: any) => {
-    const remisionInfo = periodRemisiones?.find((r) => r.id === rm.remision_id);
+  const consumptionDetails = remisionMaterialRows.map((rm) => {
+    const remisionInfo = periodRemisiones.find((r) => r.id === rm.remision_id);
+    const remisionDate = remisionInfo?.fecha ? String(remisionInfo.fecha).slice(0, 10) : '';
     return {
       remision_number: remisionInfo?.remision_number || 'N/A',
-      remision_date: remisionInfo?.fecha || '',
+      remision_date: remisionDate,
       material_id: raw.materialId,
       material_name: matRow.material_name,
       cantidad_teorica: Number(rm.cantidad_teorica) || 0,
