@@ -950,8 +950,12 @@ export class InventoryDashboardService {
           ? 0
           : Math.max(0, initialStockFromHistory);
 
-        const additionsForTheory =
-          periodManualAdditions + (isOpenCutoverStart ? syntheticOpenLayerKgPeriod : 0);
+        // La capa OPEN sintética (`per_open_layer_kg`) ya está acotada por la RPC a entradas
+        // fechadas dentro del periodo, así que SIEMPRE es una adición del periodo. Antes solo se
+        // sumaba cuando startDate === cutoverDay; eso descartaba el saldo inicial de materiales
+        // creados/ajustados después del corte de planta (su capa OPEN cae dentro del periodo de
+        // rollforward pero no en su primer día), dejando su inventario inicial en cero.
+        const additionsForTheory = periodManualAdditions + syntheticOpenLayerKgPeriod;
 
         const theoreticalFinalStock =
           initialStockAdjusted +
