@@ -872,8 +872,11 @@ export class InventoryClosureService {
 
     // Create adjustment for each material (idempotent — no double seal).
     // Adjustment qty = physical count − libro teórico al cierre del período (period_end).
-    // Does NOT use live material_inventory (e.g. June consumptions after May 31 must not
-    // distort the May close). DB trigger skips current_stock for reference_type inventory_closure.
+    // The adjustment qty does NOT use live material_inventory (e.g. June consumptions after
+    // May 31 must not distort the May close book). The DB trigger skips current_stock for
+    // reference_type inventory_closure, so AFTER posting the adjustment we apply its delta to
+    // the live material_inventory ourselves — adding (physical − book at period_end), not
+    // overwriting with the physical, so movements recorded after period_end are preserved.
     for (const mat of materials) {
       const physicalCountKg = mat.physical_count_kg == null ? null : Number(mat.physical_count_kg);
       if (physicalCountKg == null) continue; // no physical count → nothing to reconcile
@@ -1010,6 +1013,39 @@ export class InventoryClosureService {
         .update({ adjustment_id: adj.id, updated_at: new Date().toISOString() })
         .eq('closure_id', closureId)
         .eq('material_id', mat.material_id);
+
+      // Push the reconciliation into the live material inventory. The trigger skips
+      // current_stock for inventory_closure rows and the FIFO helpers don't touch it, so
+      // this is the only write. Apply the delta (physical − book at period_end) on top of the
+      // current live stock so post-period movements survive. Reached only when a new adjustment
+      // was created (existing-adjustment paths `continue` above), so re-seal won't double-apply.
+      const { data: invRow } = await this.supabase
+        .from('material_inventory')
+        .select('current_stock')
+        .eq('plant_id', closure.plant_id)
+        .eq('material_id', mat.material_id)
+        .maybeSingle();
+
+      const liveAfter = Number(invRow?.current_stock ?? 0) + stockDeltaKg;
+      if (invRow) {
+        await this.supabase
+          .from('material_inventory')
+          .update({
+            current_stock: liveAfter,
+            last_adjustment_date: adjustmentDate,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('plant_id', closure.plant_id)
+          .eq('material_id', mat.material_id);
+      } else {
+        await this.supabase.from('material_inventory').insert({
+          plant_id: closure.plant_id,
+          material_id: mat.material_id,
+          current_stock: liveAfter,
+          minimum_stock: 0,
+          last_adjustment_date: adjustmentDate,
+        });
+      }
     }
 
     // Seal the closure

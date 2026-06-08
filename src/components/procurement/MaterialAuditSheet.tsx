@@ -124,7 +124,7 @@ export default function MaterialAuditSheet({
   /** Dosificador: movimientos y existencias, sin montos (MXN). */
   const hideMoney = profile?.role === 'DOSIFICADOR'
 
-  const [tab, setTab] = useState<'movements' | 'mismatch' | 'variances'>('movements')
+  const [tab, setTab] = useState<'movements' | 'consumos' | 'mismatch' | 'variances'>('movements')
   const [sinceCutover, setSinceCutover] = useState(false)
   const [startDate, setStartDate] = useState('2026-04-01')
   const [endDate, setEndDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -680,6 +680,9 @@ export default function MaterialAuditSheet({
                 <TabsTrigger value="movements" disabled={!activeMaterial}>
                   Movimientos
                 </TabsTrigger>
+                <TabsTrigger value="consumos" disabled={!activeMaterial}>
+                  Consumos
+                </TabsTrigger>
                 <TabsTrigger value="mismatch" disabled={!activeMaterial}>
                   Entradas con desfase
                 </TabsTrigger>
@@ -694,6 +697,88 @@ export default function MaterialAuditSheet({
                     ledgerMode={!hideMoney}
                     renderRowActions={(m) => renderMovementActions(m)}
                   />
+                )}
+              </TabsContent>
+
+              <TabsContent value="consumos" className="mt-3">
+                {ledgerLoading && activeMaterial ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : !ledgerForView ? (
+                  <p className="text-sm text-stone-500">Cargue un material primero.</p>
+                ) : ledgerForView.consumption_details.length === 0 ? (
+                  <p className="text-sm text-stone-600">Sin consumos por remisión en este rango.</p>
+                ) : (
+                  <div className="border border-stone-200 rounded-lg overflow-hidden bg-white max-h-[420px] overflow-y-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Remisión</TableHead>
+                          <TableHead>Fecha</TableHead>
+                          <TableHead className="text-right">Teórica</TableHead>
+                          <TableHead className="text-right">Real</TableHead>
+                          <TableHead className="text-right">Δ (real−teórica)</TableHead>
+                          {!hideMoney && (
+                            <>
+                              <TableHead className="text-right">Costo unit.</TableHead>
+                              <TableHead className="text-right">Costo FIFO</TableHead>
+                            </>
+                          )}
+                          <TableHead className="w-[52px]" />
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ledgerForView.consumption_details.map((c, i) => (
+                          <TableRow key={`${c.remision_number}-${i}`}>
+                            <TableCell className="font-mono text-xs">{c.remision_number}</TableCell>
+                            <TableCell>{c.remision_date}</TableCell>
+                            <TableCell className="text-right font-mono">{fmtKg(c.cantidad_teorica)}</TableCell>
+                            <TableCell className="text-right font-mono">{fmtKg(c.cantidad_real)}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{deltaBadge(c.variance)}</TableCell>
+                            {!hideMoney && (
+                              <>
+                                <TableCell className="text-right font-mono">
+                                  {c.unit_cost_weighted != null ? fmtMx(c.unit_cost_weighted) : '—'}
+                                </TableCell>
+                                <TableCell className="text-right font-mono">
+                                  {c.total_cost_fifo != null ? fmtMx(c.total_cost_fifo) : '—'}
+                                </TableCell>
+                              </>
+                            )}
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                aria-label="Ver remisiones"
+                                onClick={() => {
+                                  const href = `/production-control/remisiones?fecha=${encodeURIComponent(movementDateToFechaParam(c.remision_date))}`
+                                  onOpenChange(false)
+                                  window.setTimeout(() => router.push(href), 200)
+                                }}
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <div className="flex flex-wrap justify-end gap-4 border-t border-stone-200 bg-stone-50 px-3 py-2 text-xs text-stone-700">
+                      <span>
+                        Teórica total:{' '}
+                        <span className="font-mono">
+                          {fmtKg(ledgerForView.consumption_details.reduce((s, c) => s + c.cantidad_teorica, 0))}
+                        </span>
+                      </span>
+                      <span>
+                        Real total:{' '}
+                        <span className="font-mono">
+                          {fmtKg(ledgerForView.consumption_details.reduce((s, c) => s + c.cantidad_real, 0))}
+                        </span>
+                      </span>
+                      <span>{ledgerForView.consumption_details.length} remisiones</span>
+                    </div>
+                  </div>
                 )}
               </TabsContent>
 
