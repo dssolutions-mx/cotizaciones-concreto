@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/supabase';
 import { FIFO_LAYER_INTEGRITY_EPS_KG } from '@/lib/inventory/fifoLayerIntegrity';
 import { startOfMonthDate } from '@/lib/materialPricePeriod';
+import { parseFinitePrice, resolveFifoLayerUnitPrice } from '@/lib/inventory/resolveUnitPrice';
 
 type DbClient = SupabaseClient<Database>;
 type AllocInsert = Database['public']['Tables']['material_consumption_allocations']['Insert'];
@@ -229,17 +230,7 @@ export async function consumeFifoForAdjustment(
 
     if (entryRemaining <= QTY_EPS_KG) continue;
 
-    let unitPrice = entry.landed_unit_price
-      ? Number(entry.landed_unit_price)
-      : entry.unit_price
-        ? Number(entry.unit_price)
-        : null;
-
-    if (!unitPrice && unitPrice !== 0) {
-      const fallbackPrice = materialPrices[0];
-      unitPrice = fallbackPrice?.price_per_unit ? Number(fallbackPrice.price_per_unit) : 0;
-    }
-    if (unitPrice === null) unitPrice = 0;
+    const unitPrice = resolveFifoLayerUnitPrice(entry, materialPrices[0]?.price_per_unit);
 
     const quantityFromLayer = Math.min(remainingToAllocate, entryRemaining);
     let qtyRounded = Number(quantityFromLayer.toFixed(6));
@@ -273,7 +264,7 @@ export async function consumeFifoForAdjustment(
       total_cost: cost,
       consumption_date: consumptionDate,
       created_by: userId,
-      cost_basis: entry.landed_unit_price ? 'landed' : 'material_only',
+      cost_basis: parseFinitePrice(entry.landed_unit_price) != null ? 'landed' : 'material_only',
     });
 
     remainingToAllocate -= qtyRounded;

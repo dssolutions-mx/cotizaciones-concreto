@@ -282,7 +282,8 @@ export const priceService = {
     const priceMap = new Map<string, number>();
     for (const row of rows || []) {
       if (row.material_id && !priceMap.has(row.material_id)) {
-        priceMap.set(row.material_id, Number(row.price_per_unit) || 0);
+        const n = Number(row.price_per_unit);
+        if (Number.isFinite(n)) priceMap.set(row.material_id, n);
       }
     }
     return { data: priceMap, error: null };

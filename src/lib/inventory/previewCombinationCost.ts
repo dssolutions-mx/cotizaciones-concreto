@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/types/supabase'
 import { startOfMonthDate } from '@/lib/materialPricePeriod'
+import { parseFinitePrice, resolveFifoLayerUnitPrice } from '@/lib/inventory/resolveUnitPrice'
 
 type DbClient = SupabaseClient<Database>
 
@@ -106,11 +107,7 @@ function computeCostFromLayers(
           ? Number(e.received_qty_kg)
           : Number(e.quantity_received)
     if (layerQty <= QTY_EPS_KG) continue
-    const price = e.landed_unit_price
-      ? Number(e.landed_unit_price)
-      : e.unit_price
-        ? Number(e.unit_price)
-        : fallbackPrice
+    const price = resolveFifoLayerUnitPrice(e, fallbackPrice)
     const take = Math.min(remaining, layerQty)
     cost += take * price
     remaining -= take
@@ -144,9 +141,7 @@ async function previewSingleDraw(
     .eq('plant_id', plantId)
     .lte('period_start', consumptionCap)
     .order('period_start', { ascending: false })
-  const fallbackPrice = (priceData ?? [])[0]?.price_per_unit
-    ? Number((priceData ?? [])[0].price_per_unit)
-    : 0
+  const fallbackPrice = parseFinitePrice((priceData ?? [])[0]?.price_per_unit) ?? 0
 
   // Try layers at the specified date first
   const layersAtDate = await fetchLayers(supabase, plantId, materialId, consumptionDate)

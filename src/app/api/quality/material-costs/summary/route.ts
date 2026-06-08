@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     const plantId = searchParams.get('plant_id');
     const grainParam = searchParams.get('granularity');
     const granularity: ReceiptGranularity =
-      grainParam === 'day' ? 'day' : 'week';
+      grainParam === 'day' ? 'day' : grainParam === 'week' ? 'week' : 'month';
 
     const defaultRange = defaultReceiptRange();
     const from = searchParams.get('from') ?? defaultRange.from;
@@ -106,11 +106,11 @@ export async function GET(request: NextRequest) {
       const listPoints = listPricesToPoints(listByMaterial.get(mat.id) ?? []);
       const matEntries = entriesByMaterial.get(mat.id) ?? [];
       const {
-        series,
+        monthlySeries,
         missingLandedCount,
         pendingReviewCount,
       } = buildMaterialCostSeries(listPoints, matEntries, granularity, from, to);
-      const summary = summarizeSeries(series);
+      const summary = summarizeSeries(monthlySeries);
       const receiptsInPeriod = matEntries.filter(
         (e) => entryInDateWindow(e, from, to) && isEligibleReceiptForCost(e)
       ).length;
@@ -128,7 +128,7 @@ export async function GET(request: NextRequest) {
         plant_id: mat.plant_id,
         plants: mat.plants,
         suppliers: mat.suppliers,
-        sparkline: sparklineFromSeries(series),
+        sparkline: sparklineFromSeries(monthlySeries),
         ...summary,
         receiptCountInPeriod: receiptsInPeriod,
         missingLandedInPeriod: missingLandedCount,

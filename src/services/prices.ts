@@ -46,7 +46,8 @@ export async function getMaterialPriceMapForMaterials(
   const map = new Map<string, number>();
   for (const pr of rows) {
     if (pr.material_id && !map.has(pr.material_id)) {
-      map.set(pr.material_id, Number(pr.price_per_unit) || 0);
+      const n = Number(pr.price_per_unit);
+      if (Number.isFinite(n)) map.set(pr.material_id, n);
     }
   }
   return map;

@@ -9,6 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
   ReferenceLine,
+  Dot,
 } from 'recharts';
 import type { CostTrendPoint } from '@/lib/materialCostTrend';
 import {
@@ -22,6 +23,8 @@ type Props = {
   height?: number;
   showCutover?: boolean;
   compact?: boolean;
+  /** Emphasize monthly KPI (fewer ticks, thicker line for receipt months). */
+  kpiMode?: boolean;
 };
 
 export default function MaterialCostChart({
@@ -29,11 +32,14 @@ export default function MaterialCostChart({
   height = 220,
   showCutover = true,
   compact = false,
+  kpiMode = false,
 }: Props) {
   const data = series.map((p) => ({
     ...p,
     label: formatBucketLabel(p.periodStart, p.granularity),
     price: p.avgPricePerKg,
+    isList: p.source === 'list',
+    isCarried: p.carriedForward === true,
   }));
 
   if (data.length === 0) {
@@ -51,11 +57,11 @@ export default function MaterialCostChart({
           <CartesianGrid strokeDasharray="3 3" className="stroke-stone-200" />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: compact ? 9 : 11 }}
-            interval={compact ? 'preserveStartEnd' : 0}
-            angle={compact ? -35 : 0}
-            textAnchor={compact ? 'end' : 'middle'}
-            height={compact ? 48 : 28}
+            tick={{ fontSize: compact ? 9 : kpiMode ? 10 : 11 }}
+            interval={kpiMode ? 0 : compact ? 'preserveStartEnd' : 0}
+            angle={compact || kpiMode ? -30 : 0}
+            textAnchor={compact || kpiMode ? 'end' : 'middle'}
+            height={compact || kpiMode ? 44 : 28}
           />
           <YAxis
             tick={{ fontSize: 11 }}
@@ -68,7 +74,14 @@ export default function MaterialCostChart({
               border: '1px solid #e7e5e4',
               fontSize: 12,
             }}
-            formatter={(value: number) => [formatPriceMxnKg(value), 'Precio']}
+            formatter={(value: number, _name, item) => {
+              const row = item?.payload as { receiptCount?: number; totalQtyKg?: number };
+              const extra =
+                row?.receiptCount && row.receiptCount > 0
+                  ? ` · ${row.receiptCount} recep., ${(row.totalQtyKg ?? 0).toFixed(0)} kg`
+                  : '';
+              return [formatPriceMxnKg(value) + extra, 'Precio'];
+            }}
             labelFormatter={(_, payload) => {
               const row = payload?.[0]?.payload as CostTrendPoint & {
                 label: string;
@@ -79,8 +92,10 @@ export default function MaterialCostChart({
                 row.source === 'list'
                   ? 'Lista mensual'
                   : row.carriedForward
-                    ? 'Último precio (sin recepción)'
-                    : 'Promedio recepciones (landed)';
+                    ? 'Último mes (sin recepción nueva)'
+                    : row.granularity === 'month'
+                      ? 'Promedio mensual landed (Σ kg×precio ÷ Σ kg)'
+                      : 'Promedio recepciones (landed)';
               return `${row.label} · ${src}`;
             }}
           />
@@ -108,9 +123,25 @@ export default function MaterialCostChart({
             type="monotone"
             dataKey="price"
             stroke="#0ea5e9"
-            strokeWidth={2}
-            dot={{ r: 3, strokeWidth: 1, stroke: '#fff' }}
-            activeDot={{ r: 5 }}
+            strokeWidth={kpiMode ? 2.5 : 2}
+            strokeDasharray={kpiMode ? undefined : undefined}
+            dot={(props) => {
+              const { cx, cy, payload } = props;
+              const p = payload as { isList?: boolean; isCarried?: boolean };
+              const fill = p.isList ? '#059669' : p.isCarried ? '#94a3b8' : '#0ea5e9';
+              const r = kpiMode && !p.isCarried ? 4 : 3;
+              return (
+                <Dot
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill={fill}
+                  stroke="#fff"
+                  strokeWidth={1}
+                />
+              );
+            }}
+            activeDot={{ r: 6 }}
           />
         </LineChart>
       </ResponsiveContainer>

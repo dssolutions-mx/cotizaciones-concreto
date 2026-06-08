@@ -41,8 +41,11 @@ export default function MaterialCostMethodologyPanel() {
               <code className="text-xs bg-white px-1 rounded">pricing_status = reviewed</code>.
             </li>
             <li>
-              Fórmula por semana/día: Σ (kg recibidos × landed) ÷ Σ kg. Semanas sin entrada repiten el último
-              precio (línea plana en el gráfico).
+              <span className="font-medium text-stone-800">KPI principal (mes):</span> Σ (kg × landed) ÷ Σ kg por
+              mes calendario — suaviza recepciones puntuales dentro del mismo mes.
+            </li>
+            <li>
+              Vista semanal/diaria en detalle: misma fórmula por bucket; puede verse más volátil que el KPI mensual.
             </li>
             <li>
               Alertas cuando la variación vs el período anterior es ≥{PRICE_ALERT_PCT}%.

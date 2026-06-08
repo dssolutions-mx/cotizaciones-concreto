@@ -169,7 +169,7 @@ export default function MaterialCostTrendCard({
       <div className="px-4 py-3 flex items-end justify-between gap-3 min-h-[88px]">
         <div>
           <p className="text-[10px] uppercase tracking-wide text-stone-400 font-medium">
-            Último precio
+            Último KPI mensual
           </p>
           <p className="text-lg font-bold text-stone-900 tabular-nums">
             {formatPriceMxnKg(lastPrice)}

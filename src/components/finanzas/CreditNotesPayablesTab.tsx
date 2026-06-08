@@ -366,24 +366,24 @@ export default function CreditNotesPayablesTab({
 
                 {expanded && (
                   <div className="divide-y divide-stone-100">
-                    {notes.map(cn => {
-                      const cnExpanded = expandedNotes.has(cn.id)
-                      const allocs = cn.invoice_allocations ?? []
+                    {notes.map(note => {
+                      const noteExpanded = expandedNotes.has(note.id)
+                      const allocs = note.invoice_allocations ?? []
 
                       return (
-                        <div key={cn.id}>
+                        <div key={note.id}>
                           <div
                             className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-stone-50 transition-colors"
                             onClick={() => {
                               setExpandedNotes(prev => {
                                 const next = new Set(prev)
-                                if (next.has(cn.id)) next.delete(cn.id)
-                                else next.add(cn.id)
+                                if (next.has(note.id)) next.delete(note.id)
+                                else next.add(note.id)
                                 return next
                               })
                             }}
                           >
-                            {cnExpanded ? (
+                            {noteExpanded ? (
                               <ChevronDown className="h-3.5 w-3.5 text-stone-400" />
                             ) : (
                               <ChevronRight className="h-3.5 w-3.5 text-stone-400" />
@@ -392,28 +392,28 @@ export default function CreditNotesPayablesTab({
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-mono text-sm font-semibold">
-                                  {cn.credit_number ?? `NC-${cn.id.slice(0, 8)}`}
+                                  {note.credit_number ?? `NC-${note.id.slice(0, 8)}`}
                                 </span>
                                 <span
                                   className={cn(
                                     'px-2 py-0.5 rounded-full text-xs font-medium',
-                                    STATUS_COLORS[cn.status],
+                                    STATUS_COLORS[note.status],
                                   )}
                                 >
-                                  {STATUS_LABELS[cn.status]}
+                                  {STATUS_LABELS[note.status]}
                                 </span>
                                 <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-stone-100 text-stone-600 border border-stone-200">
-                                  {REASON_LABELS[cn.reason]}
+                                  {REASON_LABELS[note.reason]}
                                 </span>
-                                {cn.cfdi_uuid ? (
-                                  cn.cfdi_estado_sat === 'cancelado' ? (
+                                {note.cfdi_uuid ? (
+                                  note.cfdi_estado_sat === 'cancelado' ? (
                                     <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-700 border border-red-200">
                                       Cancelado SAT
                                     </span>
                                   ) : (
                                     <span
                                       className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                      title={cn.cfdi_uuid}
+                                      title={note.cfdi_uuid}
                                     >
                                       CFDI ✓
                                     </span>
@@ -426,7 +426,7 @@ export default function CreditNotesPayablesTab({
                               </div>
                               <div className="flex items-center gap-3 mt-0.5 text-xs text-stone-500">
                                 <span>
-                                  {format(new Date(cn.credit_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
+                                  {format(new Date(note.credit_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
                                 </span>
                                 {allocs.length > 0 && (
                                   <span>
@@ -441,37 +441,37 @@ export default function CreditNotesPayablesTab({
                             </div>
 
                             <div className="text-right shrink-0 space-y-0.5">
-                              <div className="text-sm font-bold tabular-nums">{mxn.format(cn.total)}</div>
-                              {cn.allocated_total > 0 && (
+                              <div className="text-sm font-bold tabular-nums">{mxn.format(note.total)}</div>
+                              {note.allocated_total > 0 && (
                                 <div className="text-xs text-emerald-600 tabular-nums">
-                                  Aplicado {mxn.format(cn.allocated_total)}
+                                  Aplicado {mxn.format(note.allocated_total)}
                                 </div>
                               )}
-                              {cn.unapplied_total > 0 && cn.status !== 'void' && (
+                              {note.unapplied_total > 0 && note.status !== 'void' && (
                                 <div className="text-xs text-amber-700 tabular-nums font-medium">
-                                  Sin aplicar {mxn.format(cn.unapplied_total)}
+                                  Sin aplicar {mxn.format(note.unapplied_total)}
                                 </div>
                               )}
                             </div>
                           </div>
 
-                          {cnExpanded && (
+                          {noteExpanded && (
                             <div className="px-10 pb-4 bg-stone-50/50 border-t border-stone-100 space-y-3 pt-3">
                               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-600">
-                                <span>Subtotal: <b>{mxn.format(cn.amount)}</b></span>
-                                <span>IVA: <b>{mxn.format(cn.tax_amount)}</b></span>
+                                <span>Subtotal: <b>{mxn.format(note.amount)}</b></span>
+                                <span>IVA: <b>{mxn.format(note.tax_amount)}</b></span>
                                 <span className="font-semibold text-stone-900">
-                                  Total: <b>{mxn.format(cn.total)}</b>
+                                  Total: <b>{mxn.format(note.total)}</b>
                                 </span>
                               </div>
-                              {cn.notes && (
+                              {note.notes && (
                                 <p className="text-xs text-stone-600">
-                                  <span className="font-medium">Notas:</span> {cn.notes}
+                                  <span className="font-medium">Notas:</span> {note.notes}
                                 </p>
                               )}
-                              {cn.cfdi_relacionado_uuid && (
-                                <p className="text-xs text-stone-500 font-mono truncate" title={cn.cfdi_relacionado_uuid}>
-                                  CFDI relacionado: {cn.cfdi_relacionado_uuid}
+                              {note.cfdi_relacionado_uuid && (
+                                <p className="text-xs text-stone-500 font-mono truncate" title={note.cfdi_relacionado_uuid}>
+                                  CFDI relacionado: {note.cfdi_relacionado_uuid}
                                 </p>
                               )}
 

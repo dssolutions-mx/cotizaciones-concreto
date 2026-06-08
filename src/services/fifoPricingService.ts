@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { startOfMonthDate } from '@/lib/materialPricePeriod';
 import type { Database } from '@/types/supabase';
 import { FIFO_LAYER_INTEGRITY_EPS_KG } from '@/lib/inventory/fifoLayerIntegrity';
+import { parseFinitePrice, resolveFifoLayerUnitPrice } from '@/lib/inventory/resolveUnitPrice';
 import { FIFOAllocationResult, FIFOAllocationRequest, MaterialConsumptionAllocation } from '@/types/fifo';
 
 type DbClient = SupabaseClient<Database>;
@@ -276,14 +277,7 @@ export class FIFOPricingService {
 
       if (entryRemaining <= QTY_EPS_KG) continue;
 
-      // Use landed_unit_price (material + fleet cost per kg) when available, fallback to unit_price
-      let unitPrice = entry.landed_unit_price ? Number(entry.landed_unit_price) :
-                      (entry.unit_price ? Number(entry.unit_price) : null);
-      
-      if (!unitPrice) {
-        const fallbackPrice = materialPrices[0];
-        unitPrice = fallbackPrice?.price_per_unit ? Number(fallbackPrice.price_per_unit) : 0;
-      }
+      const unitPrice = resolveFifoLayerUnitPrice(entry, materialPrices[0]?.price_per_unit);
 
       // Calculate quantity to allocate from this layer
       const quantityFromLayer = Math.min(remainingToAllocate, entryRemaining);
@@ -320,7 +314,7 @@ export class FIFOPricingService {
         total_cost: cost,
         consumption_date: consumptionDate,
         created_by: userId,
-        cost_basis: entry.landed_unit_price ? 'landed' : 'material_only',
+        cost_basis: parseFinitePrice(entry.landed_unit_price) != null ? 'landed' : 'material_only',
       });
 
       remainingToAllocate -= qtyRounded;
@@ -513,7 +507,7 @@ export class FIFOPricingService {
         layersToProcess.push({ id: entry.id, remaining });
       }
       
-      const unitPrice = entry.unit_price ? Number(entry.unit_price) : 0;
+      const unitPrice = parseFinitePrice(entry.unit_price) ?? 0;
       const layerValue = remaining * unitPrice;
 
       return {

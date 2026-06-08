@@ -47,7 +47,7 @@ export const MaterialSelection: React.FC<MaterialSelectionProps> = ({
       errors.push('Falta tasa de absorción');
     }
     
-    if (!material.cost) {
+    if (material.cost == null) {
       errors.push('Falta precio');
     }
     

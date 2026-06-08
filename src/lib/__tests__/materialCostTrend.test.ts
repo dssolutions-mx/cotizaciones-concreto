@@ -136,5 +136,45 @@ assert.equal(materialNeedsAttention({}), false);
 
 assert.equal(isEligibleReceiptForCost(baseEntry({})), true);
 assert.equal(isEligibleReceiptForCost(baseEntry({ pricing_status: 'pending' })), false);
+assert.equal(isEligibleReceiptForCost(baseEntry({ landed_unit_price: 0 })), true);
+
+{
+  const entries = [baseEntry({ id: 'zero', landed_unit_price: 0, received_qty_kg: 2000 })];
+  const { buckets, missingLandedCount } = aggregateReceiptEntries(
+    entries,
+    'week',
+    '2026-05-01',
+    '2026-05-31'
+  );
+  assert.equal(missingLandedCount, 0);
+  assert.equal(buckets.length, 1);
+  assert.equal(buckets[0].avgPricePerKg, 0);
+}
+
+{
+  const rows = entriesToExceptionRows(
+    [baseEntry({ id: 'zero', landed_unit_price: 0 })],
+    '2026-05-01',
+    '2026-05-31'
+  );
+  assert.equal(rows.length, 0);
+}
+
+{
+  // Two weeks in May: one low-price reception, rest at $3 — monthly KPI should sit between
+  const entries = [
+    baseEntry({ id: 'w1', landed_unit_price: 3, received_qty_kg: 8000, entry_date: '2026-05-05' }),
+    baseEntry({ id: 'w2', landed_unit_price: 2.2, received_qty_kg: 2000, entry_date: '2026-05-18' }),
+    baseEntry({ id: 'w3', landed_unit_price: 3, received_qty_kg: 5000, entry_date: '2026-05-22' }),
+  ];
+  const weekStats = aggregateReceiptEntries(entries, 'week', '2026-05-01', '2026-05-31');
+  const monthStats = aggregateReceiptEntries(entries, 'month', '2026-05-01', '2026-05-31');
+  assert.ok(weekStats.buckets.length >= 1);
+  assert.equal(monthStats.buckets.length, 1);
+  const monthlyAvg = monthStats.buckets[0].avgPricePerKg;
+  // (8000×3 + 2000×2.2 + 5000×3) / 15000 ≈ 2.89 — lower than list $3 but not as low as $2.2
+  assert.ok(monthlyAvg > 2.2 && monthlyAvg < 3, `expected blended May avg, got ${monthlyAvg}`);
+  assert.ok(monthlyAvg > Math.min(...weekStats.buckets.map((b) => b.avgPricePerKg)));
+}
 
 console.log('materialCostTrend.test.ts: ok');

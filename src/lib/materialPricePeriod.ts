@@ -59,7 +59,9 @@ export function resolvePriceAtDate(
     return (b.period_start || '').localeCompare(a.period_start || '');
   });
   const row = candidates[0];
-  return row ? Number(row.price_per_unit) : null;
+  if (!row || row.price_per_unit == null) return null;
+  const n = Number(row.price_per_unit);
+  return Number.isFinite(n) ? n : null;
 }
 
 /** Latest price per material for quotes / calculator (max period_start <= today). */
@@ -86,7 +88,10 @@ export function latestPricePerMaterialForPlant(
       return (b.period_start || '').localeCompare(a.period_start || '');
     });
     const top = list[0];
-    if (top) map.set(mid, Number(top.price_per_unit) || 0);
+    if (top && top.price_per_unit != null) {
+      const n = Number(top.price_per_unit);
+      if (Number.isFinite(n)) map.set(mid, n);
+    }
   }
   return map;
 }

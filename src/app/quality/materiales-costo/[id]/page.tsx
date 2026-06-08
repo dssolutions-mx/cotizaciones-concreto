@@ -18,6 +18,7 @@ import {
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import MaterialCostChart from '@/components/quality/material-costs/MaterialCostChart';
+import MaterialCostMonthlyKpiStrip from '@/components/quality/material-costs/MaterialCostMonthlyKpiStrip';
 import MaterialCostJustificationPanel from '@/components/quality/material-costs/MaterialCostJustificationPanel';
 import MaterialCostExceptionsTable from '@/components/quality/material-costs/MaterialCostExceptionsTable';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
@@ -42,6 +43,8 @@ type TrendResponse = {
     suppliers?: { name: string } | null;
   };
   series: CostTrendPoint[];
+  monthlySeries: CostTrendPoint[];
+  monthlyBuckets: CostTrendPoint[];
   buckets: CostTrendPoint[];
   listPoints: CostTrendPoint[];
   receipts: ReceiptRow[];
@@ -58,7 +61,7 @@ type TrendResponse = {
   exceptions: CostEntryException[];
   missingLandedInPeriod: number;
   pendingReviewInPeriod?: number;
-  granularity: 'week' | 'day';
+  granularity: 'month' | 'week' | 'day';
   from: string;
   to: string;
 };
@@ -85,7 +88,7 @@ function MaterialCostDetailContent() {
   const [data, setData] = useState<TrendResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [granularity, setGranularity] = useState<'week' | 'day'>('week');
+  const [granularity, setGranularity] = useState<'month' | 'week' | 'day'>('month');
   const { dateRange, setDateRange, from, to } = useMaterialCostDateRange(6);
 
   const fetchData = useCallback(async () => {
@@ -186,21 +189,27 @@ function MaterialCostDetailContent() {
         {plantId && (
           <div className="flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center gap-3">
             <DatePickerWithRange value={dateRange} onChange={setDateRange} className="w-auto" />
-            <span className="text-xs text-stone-500 font-medium">Recepciones (desde {MATERIAL_COST_CUTOVER}):</span>
+            <span className="text-xs text-stone-500 font-medium">Vista del gráfico:</span>
             <div className="flex rounded-lg border border-stone-200 overflow-hidden bg-white">
-              {(['week', 'day'] as const).map((g) => (
+              {(
+                [
+                  { id: 'month' as const, label: 'Mes (KPI)' },
+                  { id: 'week' as const, label: 'Semana' },
+                  { id: 'day' as const, label: 'Día' },
+                ] as const
+              ).map((g) => (
                 <button
-                  key={g}
+                  key={g.id}
                   type="button"
-                  onClick={() => setGranularity(g)}
+                  onClick={() => setGranularity(g.id)}
                   className={cn(
                     'px-3 py-1.5 text-xs font-medium transition-colors',
-                    granularity === g
+                    granularity === g.id
                       ? 'bg-stone-800 text-white'
                       : 'text-stone-600 hover:bg-stone-50'
                   )}
                 >
-                  {g === 'week' ? 'Semana' : 'Día'}
+                  {g.label}
                 </button>
               ))}
             </div>
@@ -263,20 +272,38 @@ function MaterialCostDetailContent() {
 
             <MaterialCostExceptionsTable exceptions={data.exceptions} />
 
-            <div className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-center gap-2 mb-3">
-                <h2 className="text-sm font-semibold text-stone-900">Evolución de precio</h2>
+            <div className="rounded-xl border border-stone-200 bg-white p-4 shadow-sm space-y-4">
+              <div>
+                <h2 className="text-sm font-semibold text-stone-900">KPI mensual (promedio landed)</h2>
+                <p className="text-xs text-stone-500 mt-0.5">
+                  Cada mes: Σ (kg recibidos × landed) ÷ Σ kg. Suaviza picos de una sola semana dentro del mes.
+                </p>
+              </div>
+              <MaterialCostMonthlyKpiStrip buckets={data.monthlyBuckets} />
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xs font-semibold text-stone-700 uppercase tracking-wide">
+                  Evolución {granularity === 'month' ? 'mensual' : granularity === 'week' ? 'semanal' : 'diaria'}
+                </h3>
                 <Badge variant="outline" className="text-[10px] bg-emerald-50 text-emerald-800 border-emerald-200">
-                  ● Lista (mensual)
+                  ● Lista
                 </Badge>
                 <Badge variant="outline" className="text-[10px] bg-sky-50 text-sky-800 border-sky-200">
-                  ● Recepción landed
+                  ● Recepción
+                </Badge>
+                <Badge variant="outline" className="text-[10px] bg-stone-50 text-stone-500 border-stone-200">
+                  ○ Sin recepción (prolongado)
                 </Badge>
               </div>
-              <MaterialCostChart series={data.series} height={280} />
-              <p className="text-[10px] text-stone-400 mt-2">
-                Corte operativo {MATERIAL_COST_CUTOVER}: lista mensual antes; después solo recepciones con precio
-                revisado. Semanas sin entrada mantienen el último precio (línea plana).
+              <MaterialCostChart
+                series={data.series}
+                height={280}
+                kpiMode={granularity === 'month'}
+              />
+              <p className="text-[10px] text-stone-400">
+                Corte operativo {MATERIAL_COST_CUTOVER}: lista mensual antes; después recepciones revisadas.
+                {granularity === 'month'
+                  ? ' Meses sin entrada repiten el último promedio mensual.'
+                  : ' Semanas/días sin entrada repiten el último precio (puede verse más volátil que el KPI mensual).'}
               </p>
             </div>
 
@@ -294,7 +321,7 @@ function MaterialCostDetailContent() {
 
             {receiptBuckets.length > 0 && (
               <SectionTable
-                title={`Promedio por ${granularity === 'week' ? 'semana' : 'día'} (recepciones revisadas)`}
+                title={`Promedio por ${granularity === 'month' ? 'mes' : granularity === 'week' ? 'semana' : 'día'} (recepciones revisadas)`}
                 rows={receiptBuckets.map((p) => ({
                   period: formatBucketLabel(p.periodStart, p.granularity),
                   avg: formatPriceMxnKg(p.avgPricePerKg),
@@ -316,7 +343,7 @@ function MaterialCostDetailContent() {
                     Recepciones incluidas en el promedio ({data.receipts.length})
                   </h2>
                   <p className="text-xs text-stone-500 mt-0.5">
-                    Solo entradas revisadas con landed &gt; 0 en {data.from} → {data.to}
+                    Solo entradas revisadas con landed definido en {data.from} → {data.to}
                   </p>
                 </div>
                 <div className="overflow-x-auto max-h-[360px] overflow-y-auto">

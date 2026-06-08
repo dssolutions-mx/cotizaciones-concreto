@@ -428,7 +428,7 @@ const ConcreteMixCalculator = () => {
       errors.push(`${materialType}: Falta tasa de absorción (absorption_rate)`);
     }
     
-    if (!material.cost) {
+    if (material.cost == null) {
       errors.push(`${materialType}: Falta precio en tabla material_prices`);
     }
     

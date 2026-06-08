@@ -440,7 +440,7 @@ export function useProgressiveProductionDetails(params: {
               unit: m.unit_of_measure || '',
               totalConsumption: 0,
               totalCost: 0,
-              hasPrice: price > 0,
+              hasPrice: priceMap.has(key),
               pricePerUnit: price,
             });
           }
@@ -765,7 +765,7 @@ export function useProgressiveProductionDetails(params: {
         consumptionPerM3,
         remisionesCount: remSet.size,
         pricePerUnit,
-        hasPrice: pricePerUnit > 0,
+        hasPrice: priceMapOne.has(materialId),
         consumptionByRecipe: Array.from(consumptionByRecipe.values())
       };
     };

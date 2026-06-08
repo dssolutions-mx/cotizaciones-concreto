@@ -76,7 +76,7 @@ function MaterialesCostoHubContent() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all');
-  const [granularity, setGranularity] = useState<'week' | 'day'>('week');
+  const [granularity, setGranularity] = useState<'month' | 'week' | 'day'>('month');
   const { dateRange, setDateRange, from, to } = useMaterialCostDateRange(6);
 
   const plantId = currentPlant?.id ?? plantFromUrl ?? null;
@@ -202,24 +202,9 @@ function MaterialesCostoHubContent() {
             <span className="text-xs text-stone-500 tabular-nums">
               Período: {from} → {to}
             </span>
-            <span className="text-xs text-stone-500 font-medium">Agregación:</span>
-            <div className="flex rounded-lg border border-stone-200 overflow-hidden bg-white">
-              {(['week', 'day'] as const).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  onClick={() => setGranularity(g)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-medium transition-colors',
-                    granularity === g
-                      ? 'bg-stone-800 text-white'
-                      : 'text-stone-600 hover:bg-stone-50'
-                  )}
-                >
-                  {g === 'week' ? 'Semana' : 'Día'}
-                </button>
-              ))}
-            </div>
+            <span className="text-xs text-stone-500 font-medium">
+              KPI y tarjetas usan promedio <strong className="font-medium text-stone-700">mensual</strong> landed
+            </span>
             <div className="flex rounded-lg border border-stone-200 overflow-hidden bg-white">
               {(
                 [

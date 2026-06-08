@@ -376,7 +376,7 @@ export default function ProduccionDashboard() {
         consumptionPerM3,
         remisionesCount: remisionesCount.size,
         pricePerUnit: materialPrice,
-        hasPrice: materialPrice > 0,
+        hasPrice: priceMapOne.has(materialId),
         consumptionByRecipe: Array.from(consumptionByRecipe.values())
           .sort((a, b) => b.total_consumption - a.total_consumption)
       };
@@ -515,7 +515,7 @@ export default function ProduccionDashboard() {
             unit: material.materials.unit_of_measure,
             totalConsumption: quantity,
             totalCost: quantity * price,
-            hasPrice: price > 0,
+            hasPrice: priceMap.has(key),
             pricePerUnit: price
           });
         }
@@ -1139,7 +1139,7 @@ export default function ProduccionDashboard() {
           cantidad_teorica: material.cantidad_teorica,
           ajuste: ajuste,
           unit: material.unit,
-          has_price: material.price > 0,
+          has_price: priceMap?.has(material.material_id) ?? false,
           price: material.price,
           total_cost: material.cantidad_real * material.price
         });

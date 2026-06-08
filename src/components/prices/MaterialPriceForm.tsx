@@ -96,8 +96,8 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       return;
     }
 
-    if (formData.pricePerUnit <= 0) {
-      setError('El precio debe ser mayor a 0');
+    if (formData.pricePerUnit < 0) {
+      setError('El precio no puede ser negativo');
       return;
     }
 

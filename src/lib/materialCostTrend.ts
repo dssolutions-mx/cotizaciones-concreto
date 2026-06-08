@@ -3,9 +3,11 @@ import {
   parseISO,
   startOfWeek,
   startOfDay,
+  startOfMonth,
   subMonths,
   addDays,
   addWeeks,
+  addMonths,
   isBefore,
   isAfter,
 } from 'date-fns';
@@ -15,7 +17,7 @@ import { MATERIAL_LEDGER_DEFAULT_CUTOVER } from '@/types/materialLedger';
 export const MATERIAL_COST_CUTOVER = MATERIAL_LEDGER_DEFAULT_CUTOVER;
 
 export type CostGranularity = 'month' | 'week' | 'day';
-export type ReceiptGranularity = 'week' | 'day';
+export type ReceiptGranularity = 'month' | 'week' | 'day';
 export type CostSource = 'list' | 'receipt';
 
 export type CostTrendPoint = {
@@ -90,13 +92,17 @@ export function isReviewedCostEntry(e: MaterialEntryRaw): boolean {
   return e.pricing_status === 'reviewed';
 }
 
-/** Entrada elegible para promedio landed: revisada, con kg y landed > 0. */
+/** Entrada elegible para promedio landed: revisada, con kg y landed definido (0 es válido tras NC). */
+export function hasLandedPrice(landed: number | null | undefined): boolean {
+  return landed != null && Number.isFinite(Number(landed));
+}
+
 export function isEligibleReceiptForCost(e: MaterialEntryRaw): boolean {
   if (!isReviewedCostEntry(e)) return false;
   if (e.excluded_from_fifo === true) return false;
   if (entryQtyKg(e) <= 0) return false;
   const landed = e.landed_unit_price != null ? Number(e.landed_unit_price) : null;
-  return landed != null && Number.isFinite(landed) && landed > 0;
+  return hasLandedPrice(landed);
 }
 
 export function entryInDateWindow(
@@ -114,6 +120,7 @@ export function entryInDateWindow(
 export function bucketStartForDate(dateStr: string, grain: ReceiptGranularity): string {
   const d = parseISO(dateStr.length <= 10 ? dateStr : dateStr.slice(0, 10));
   if (grain === 'day') return format(startOfDay(d), 'yyyy-MM-dd');
+  if (grain === 'month') return format(startOfMonth(d), 'yyyy-MM-dd');
   return format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd');
 }
 
@@ -160,7 +167,7 @@ export function aggregateReceiptEntries(
 
     if (!isEligibleReceiptForCost(e)) {
       const landed = e.landed_unit_price != null ? Number(e.landed_unit_price) : null;
-      if (landed == null || !Number.isFinite(landed) || landed <= 0) {
+      if (isReviewedCostEntry(e) && !hasLandedPrice(landed)) {
         missingLandedCount += 1;
       }
       continue;
@@ -201,7 +208,8 @@ export function aggregateReceiptEntries(
 
 function nextBucketPeriodStart(periodStart: string, grain: ReceiptGranularity): string {
   const d = parseISO(periodStart);
-  const next = grain === 'day' ? addDays(d, 1) : addWeeks(d, 1);
+  const next =
+    grain === 'day' ? addDays(d, 1) : grain === 'month' ? addMonths(d, 1) : addWeeks(d, 1);
   return format(next, 'yyyy-MM-dd');
 }
 
@@ -220,10 +228,10 @@ export function expandReceiptBucketsWithCarryForward(
 
   while (periodStart <= to) {
     const actual = actualByPeriod.get(periodStart);
-    if (actual && actual.avgPricePerKg > 0) {
+    if (actual && Number.isFinite(actual.avgPricePerKg)) {
       lastPrice = actual.avgPricePerKg;
       out.push(actual);
-    } else if (lastPrice > 0) {
+    } else if (Number.isFinite(lastPrice)) {
       out.push({
         periodStart,
         granularity: grain,
@@ -239,6 +247,23 @@ export function expandReceiptBucketsWithCarryForward(
   return out;
 }
 
+/** Monthly landed KPI: kg-weighted average per calendar month (smooths within-month spikes). */
+export function buildMonthlyKpiSeries(
+  listPoints: CostTrendPoint[],
+  entries: MaterialEntryRaw[],
+  to: string
+) {
+  const { buckets: monthlyBuckets } = aggregateReceiptEntries(
+    entries,
+    'month',
+    MATERIAL_COST_CUTOVER,
+    to
+  );
+  const monthlyDisplay = expandReceiptBucketsWithCarryForward(monthlyBuckets, 'month', to);
+  const monthlySeries = mergeCostSeries(listPoints, monthlyDisplay);
+  return { monthlySeries, monthlyBuckets, monthlyDisplay };
+}
+
 export function buildMaterialCostSeries(
   listPoints: CostTrendPoint[],
   entries: MaterialEntryRaw[],
@@ -246,23 +271,31 @@ export function buildMaterialCostSeries(
   periodFrom: string,
   to: string
 ) {
-  // Trend + carry-forward: all reviewed receipts since cutover (not limited to chart window)
+  const monthlyKpi = buildMonthlyKpiSeries(listPoints, entries, to);
+
+  // Detail grain (week/day): optional drill-down with carry-forward
+  const detailGrain: ReceiptGranularity = grain === 'month' ? 'week' : grain;
   const { buckets: actualBuckets } = aggregateReceiptEntries(
     entries,
-    grain,
+    detailGrain,
     MATERIAL_COST_CUTOVER,
     to
   );
-  const receiptDisplay = expandReceiptBucketsWithCarryForward(actualBuckets, grain, to);
-  const series = mergeCostSeries(listPoints, receiptDisplay);
+  const receiptDisplay = expandReceiptBucketsWithCarryForward(actualBuckets, detailGrain, to);
+  const series =
+    grain === 'month'
+      ? monthlyKpi.monthlySeries
+      : mergeCostSeries(listPoints, receiptDisplay);
 
-  // KPI counts scoped to the selected reporting window
-  const periodStats = aggregateReceiptEntries(entries, grain, periodFrom, to);
+  // KPI counts scoped to the selected reporting window (always calendar month)
+  const periodStats = aggregateReceiptEntries(entries, 'month', periodFrom, to);
 
   return {
     series,
-    actualBuckets,
-    receiptDisplay,
+    actualBuckets: grain === 'month' ? monthlyKpi.monthlyBuckets : actualBuckets,
+    receiptDisplay: grain === 'month' ? monthlyKpi.monthlyDisplay : receiptDisplay,
+    monthlySeries: monthlyKpi.monthlySeries,
+    monthlyBuckets: monthlyKpi.monthlyBuckets,
     missingLandedCount: periodStats.missingLandedCount,
     pendingReviewCount: periodStats.pendingReviewCount,
   };
@@ -306,7 +339,7 @@ export type PriceJustification = {
 };
 
 function meaningfulPoints(series: CostTrendPoint[]): CostTrendPoint[] {
-  return series.filter((p) => p.avgPricePerKg > 0);
+  return series.filter((p) => Number.isFinite(p.avgPricePerKg));
 }
 
 export function summarizeSeries(series: CostTrendPoint[]): SeriesSummary {
@@ -379,7 +412,7 @@ export function entriesToExceptionRows(
       continue;
     }
     const landed = e.landed_unit_price != null ? Number(e.landed_unit_price) : null;
-    if (landed == null || !Number.isFinite(landed) || landed <= 0) {
+    if (!hasLandedPrice(landed)) {
       rows.push({
         id: e.id,
         entry_number: e.entry_number,
@@ -465,7 +498,7 @@ export function buildPriceJustification(
         `${bucket.receiptCount} ${bucket.receiptCount > 1 ? 'recepciones' : 'recepción'} revisada${bucket.receiptCount > 1 ? 's' : ''} · ${bucket.totalQtyKg.toFixed(0)} kg`,
         bucket.minPrice != null && bucket.maxPrice != null
           ? `Rango en el período: ${formatPriceMxnKg(bucket.minPrice)} – ${formatPriceMxnKg(bucket.maxPrice)}`
-          : 'Solo entradas con pricing_status = reviewed y landed > 0.',
+          : 'Solo entradas con pricing_status = reviewed y landed definido (incluye $0 tras nota de crédito).',
         summary.priorPrice != null
           ? `vs período anterior: ${formatPriceMxnKg(summary.priorPrice)} → ${formatPriceMxnKg(summary.lastPrice)}`
           : 'Primer bucket con recepciones en la serie visible.',
@@ -491,14 +524,34 @@ export function sparklineFromSeries(
   const valid = meaningfulPoints(series);
   if (valid.length === 0) return [];
 
-  // Prefer post-cutover receipt trend (includes carry-forward); fall back to full history
+  // Prefer monthly receipt KPI post-cutover; fall back to full history
   const postCutover = valid.filter((p) => p.periodStart >= MATERIAL_COST_CUTOVER);
-  const source = postCutover.length > 0 ? postCutover : valid;
+  const monthly =
+    postCutover.length > 0
+      ? postCutover.filter((p) => p.granularity === 'month')
+      : valid.filter((p) => p.granularity === 'month');
+  const source = monthly.length > 0 ? monthly : postCutover.length > 0 ? postCutover : valid;
 
   return source.slice(-maxPoints).map((p) => ({
     date: p.periodStart,
     value: p.avgPricePerKg,
   }));
+}
+
+/** Month-over-month % for monthly KPI buckets (post-cutover receipts only). */
+export function monthlyBucketPctChange(
+  buckets: CostTrendPoint[],
+  periodStart: string
+): number | null {
+  const sorted = [...buckets]
+    .filter((b) => b.source === 'receipt' && b.periodStart >= MATERIAL_COST_CUTOVER)
+    .sort((a, b) => a.periodStart.localeCompare(b.periodStart));
+  const idx = sorted.findIndex((b) => b.periodStart === periodStart);
+  if (idx <= 0) return null;
+  const prev = sorted[idx - 1].avgPricePerKg;
+  const cur = sorted[idx].avgPricePerKg;
+  if (!Number.isFinite(prev) || prev === 0) return null;
+  return +(((cur - prev) / prev) * 100).toFixed(1);
 }
 
 export function defaultReceiptRange(): { from: string; to: string } {

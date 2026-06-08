@@ -134,9 +134,12 @@ export async function POST(
     if (linkedEntries && linkedEntries.length > 0) {
       for (const entry of linkedEntries) {
         // Store original unit price if not already set
-        const entryOriginalPrice = entry.original_unit_price
-          ? Number(entry.original_unit_price)
-          : (entry.unit_price ? Number(entry.unit_price) : absoluteOriginalUnitPrice);
+        const entryOriginalPrice =
+          entry.original_unit_price != null && Number.isFinite(Number(entry.original_unit_price))
+            ? Number(entry.original_unit_price)
+            : entry.unit_price != null && Number.isFinite(Number(entry.unit_price))
+              ? Number(entry.unit_price)
+              : absoluteOriginalUnitPrice;
 
         // Calculate new total cost based on received quantity
         const receivedQty = entry.received_qty_kg
