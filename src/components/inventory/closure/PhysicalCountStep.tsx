@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -79,6 +79,19 @@ export default function PhysicalCountStep({
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!readOnly) return
+    setRows((prev) => {
+      const next = { ...prev }
+      for (const m of materials) {
+        if (next[m.material_id]) {
+          next[m.material_id] = { ...next[m.material_id], expanded: true }
+        }
+      }
+      return next
+    })
+  }, [readOnly, materials])
 
   function updateRow(materialId: string, patch: Partial<RowState>) {
     setRows((prev) => ({ ...prev, [materialId]: { ...prev[materialId], ...patch } }))
@@ -177,8 +190,9 @@ export default function PhysicalCountStep({
         </p>
       )}
       <p className="text-sm text-stone-500">
-        Ingresa el conteo físico real de cada material. Para agregados medidos en m³ elige la unidad
-        m³ y confirma el peso volumétrico sugerido por el estudio de calidad.
+        {readOnly
+          ? 'Conteo físico registrado al cerrar el inventario. Revisa valores, unidades y evidencia adjunta.'
+          : 'Ingresa el conteo físico real de cada material. Para agregados medidos en m³ elige la unidad m³ y confirma el peso volumétrico sugerido por el estudio de calidad.'}
       </p>
 
       <div className="space-y-3">
@@ -305,24 +319,41 @@ export default function PhysicalCountStep({
                       Evidencia fotográfica
                     </label>
                     <div className="flex flex-wrap gap-2">
-                      {row.evidence.map((ev) => (
-                        <div
-                          key={ev.id}
-                          className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700"
-                        >
-                          <Paperclip className="h-3 w-3 text-stone-400" />
-                          <span className="max-w-[140px] truncate">{ev.original_name}</span>
-                          {!readOnly && (
-                            <button
-                              type="button"
-                              onClick={() => removeEvidence(mat.material_id, ev.id)}
-                              className="text-stone-400 hover:text-red-500"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                      ))}
+                      {row.evidence.map((ev) => {
+                        const chip = (
+                          <>
+                            <Paperclip className="h-3 w-3 text-stone-400" />
+                            <span className="max-w-[140px] truncate">{ev.original_name}</span>
+                            {!readOnly && (
+                              <button
+                                type="button"
+                                onClick={() => removeEvidence(mat.material_id, ev.id)}
+                                className="text-stone-400 hover:text-red-500"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            )}
+                          </>
+                        )
+                        return ev.signed_url ? (
+                          <a
+                            key={ev.id}
+                            href={ev.signed_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700 hover:border-stone-400 hover:bg-stone-50"
+                          >
+                            {chip}
+                          </a>
+                        ) : (
+                          <div
+                            key={ev.id}
+                            className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2 py-1 text-xs text-stone-700"
+                          >
+                            {chip}
+                          </div>
+                        )
+                      })}
                       {!readOnly && (
                         <label className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-dashed border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-500 hover:border-stone-400 hover:text-stone-700 transition-colors">
                           <Paperclip className="h-3 w-3" />

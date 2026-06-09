@@ -328,7 +328,12 @@ export default function ClosureWizardPage() {
   const isSealed = detail?.status === 'sealed'
   const isCancelled = detail?.status === 'cancelled'
   const isAmendment = !!detail.parent_closure_id
+  const isReadOnlyClosure = isViewOnly || isSealed
   const canCancel = canManage && !isSealed && !isCancelled
+
+  const sealedByName = detail.signed_by_user
+    ? `${detail.signed_by_user.first_name} ${detail.signed_by_user.last_name}`.trim()
+    : null
 
   return (
     <div className="space-y-6">
@@ -373,6 +378,41 @@ export default function ClosureWizardPage() {
             >
               <Download className="h-3.5 w-3.5" />
               {preliminaryLoading ? 'Generando...' : 'Excel preliminar'}
+            </Button>
+          )}
+          {isSealed && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                setPreliminaryLoading(true)
+                setPreliminaryError(null)
+                try {
+                  const res = await fetch(`/api/inventory/closures/${closureId}/export`)
+                  if (!res.ok) {
+                    const data = await res.json().catch(() => ({}))
+                    throw new Error(data.error ?? 'Error al generar Excel')
+                  }
+                  const blob = await res.blob()
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `Cierre_Inventario_${detail.period_start}_${detail.period_end}.xlsx`
+                  document.body.appendChild(a)
+                  a.click()
+                  a.remove()
+                  URL.revokeObjectURL(url)
+                } catch (e) {
+                  setPreliminaryError((e as Error).message)
+                } finally {
+                  setPreliminaryLoading(false)
+                }
+              }}
+              disabled={preliminaryLoading}
+              className="gap-1.5"
+            >
+              <Download className="h-3.5 w-3.5" />
+              {preliminaryLoading ? 'Generando...' : 'Descargar Excel'}
             </Button>
           )}
           {isSealed && canManage && (
@@ -437,11 +477,18 @@ export default function ClosureWizardPage() {
         </p>
       )}
 
+      {isSealed && (
+        <p className="text-sm text-stone-600 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
+          Este cierre está sellado. Navega por los pasos para revisar el puente teórico, conteo físico,
+          conciliación, justificaciones y firma sin descargar el Excel.
+        </p>
+      )}
+
       {!isCancelled && (
         <ClosureStepper
           currentStep={activeStep}
-          reachableStep={detail ? statusToReachableStep(detail.status) : activeStep}
-          onStepClick={isViewOnly || !isSealed ? handleStepClick : undefined}
+          reachableStep={isSealed ? 'export' : detail ? statusToReachableStep(detail.status) : activeStep}
+          onStepClick={handleStepClick}
           sealed={isSealed}
           className="mb-2"
         />
@@ -473,7 +520,7 @@ export default function ClosureWizardPage() {
                 confirmed={theoreticalConfirmed}
                 confirming={confirmingTheoretical}
                 onConfirm={handleConfirmTheoretical}
-                readOnly={isViewOnly}
+                readOnly={isReadOnlyClosure}
               />
             </>
           )}
@@ -484,7 +531,7 @@ export default function ClosureWizardPage() {
               materials={detail.materials}
               thresholdPct={detail.variance_threshold_pct}
               mode={physicalCountReturnStep ? 'edit' : 'initial'}
-              readOnly={isViewOnly}
+              readOnly={isReadOnlyClosure}
               onSaved={async () => {
                 await fetchDetail()
                 const next = physicalCountReturnStep ?? 'reconciliation'
@@ -499,10 +546,10 @@ export default function ClosureWizardPage() {
               materials={detail.materials}
               thresholdPct={detail.variance_threshold_pct}
               saving={false}
-              readOnly={isViewOnly}
+              readOnly={isReadOnlyClosure}
               onConfirm={() => setActiveStep('justification')}
-              onEditPhysicalCount={isViewOnly ? undefined : () => goToPhysicalCountForEdit('reconciliation')}
-              onResyncTheoretical={canManage ? handleResyncTheoretical : undefined}
+              onEditPhysicalCount={isReadOnlyClosure ? undefined : () => goToPhysicalCountForEdit('reconciliation')}
+              onResyncTheoretical={canManage && !isSealed ? handleResyncTheoretical : undefined}
               resyncingTheoretical={resyncingTheoretical}
             />
           )}
@@ -512,20 +559,29 @@ export default function ClosureWizardPage() {
               closureId={closureId}
               materials={detail.materials}
               thresholdPct={detail.variance_threshold_pct}
-              readOnly={isViewOnly}
+              readOnly={isReadOnlyClosure}
               onSaved={() => {
                 fetchDetail()
                 setActiveStep('seal')
               }}
-              onEditPhysicalCount={isViewOnly ? undefined : () => goToPhysicalCountForEdit('justification')}
+              onEditPhysicalCount={isReadOnlyClosure ? undefined : () => goToPhysicalCountForEdit('justification')}
             />
           )}
 
-          {activeStep === 'seal' && !isSealed && (
+          {activeStep === 'seal' && (
             <SealStep
               closureId={closureId}
               materials={detail.materials}
-              readOnly={isViewOnly}
+              readOnly={isReadOnlyClosure}
+              sealedInfo={
+                isSealed
+                  ? {
+                      signatureImageUrl: detail.signature_image_url,
+                      signedByName: sealedByName,
+                      signedAt: detail.signed_at ?? null,
+                    }
+                  : undefined
+              }
               onSealed={async () => {
                 await fetchDetail()
                 setActiveStep('export')
@@ -533,7 +589,7 @@ export default function ClosureWizardPage() {
             />
           )}
 
-          {(activeStep === 'export' || isSealed) && (
+          {activeStep === 'export' && (
             <ExportStep closure={detail} />
           )}
         </div>

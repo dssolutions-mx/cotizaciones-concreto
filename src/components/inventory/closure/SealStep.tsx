@@ -2,14 +2,22 @@
 
 import React, { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Stamp, Lock, AlertTriangle } from 'lucide-react'
+import { Stamp, Lock, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import type { InventoryClosureMaterial } from '@/types/inventoryClosure'
 import SignaturePad from '@/components/inventory/closure/SignaturePad'
 import { createClient } from '@/lib/supabase/client'
+import { format, parseISO } from 'date-fns'
+import { es } from 'date-fns/locale'
 
 function fmtKg(n: number | null | undefined) {
   if (n == null) return '—'
   return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' kg'
+}
+
+interface SealInfo {
+  signatureImageUrl?: string | null
+  signedByName?: string | null
+  signedAt?: string | null
 }
 
 interface Props {
@@ -17,9 +25,24 @@ interface Props {
   materials: InventoryClosureMaterial[]
   onSealed: () => void
   readOnly?: boolean
+  sealedInfo?: SealInfo
 }
 
-export default function SealStep({ closureId, materials, onSealed, readOnly = false }: Props) {
+function fmtSealDate(d: string) {
+  try {
+    return format(parseISO(d), "d 'de' MMMM yyyy, HH:mm", { locale: es })
+  } catch {
+    return d
+  }
+}
+
+export default function SealStep({
+  closureId,
+  materials,
+  onSealed,
+  readOnly = false,
+  sealedInfo,
+}: Props) {
   const [hasSignature, setHasSignature] = useState(false)
   const [sealing, setSealing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -78,18 +101,20 @@ export default function SealStep({ closureId, materials, onSealed, readOnly = fa
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <div className="flex items-start gap-2">
-          <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-          <div className="text-sm text-amber-800">
-            <p className="font-medium mb-1">Acción irreversible</p>
-            <p>
-              Al sellar el cierre, se crearán {withVariance.length} ajuste(s) de tipo "conteo físico"
-              en el sistema. El inventario quedará actualizado y no podrá modificarse sin cancelar el cierre.
-            </p>
+      {!sealedInfo && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="text-sm text-amber-800">
+              <p className="font-medium mb-1">Acción irreversible</p>
+              <p>
+                Al sellar el cierre, se crearán {withVariance.length} ajuste(s) de tipo "conteo físico"
+                en el sistema. El inventario quedará actualizado y no podrá modificarse sin cancelar el cierre.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Summary */}
       <div className="rounded-xl border border-stone-200 bg-white p-4">
@@ -111,6 +136,30 @@ export default function SealStep({ closureId, materials, onSealed, readOnly = fa
           </div>
         )}
       </div>
+
+      {readOnly && sealedInfo?.signatureImageUrl && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <p className="text-sm font-medium text-emerald-900">Cierre sellado</p>
+          </div>
+          {(sealedInfo.signedByName || sealedInfo.signedAt) && (
+            <p className="text-sm text-emerald-800">
+              {sealedInfo.signedByName && <>Firmado por <strong>{sealedInfo.signedByName}</strong></>}
+              {sealedInfo.signedByName && sealedInfo.signedAt && ' · '}
+              {sealedInfo.signedAt && <>el {fmtSealDate(sealedInfo.signedAt)}</>}
+            </p>
+          )}
+          <div className="rounded-lg border border-emerald-200 bg-white p-3 inline-block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={sealedInfo.signatureImageUrl}
+              alt="Firma del responsable"
+              className="max-h-28 max-w-full object-contain"
+            />
+          </div>
+        </div>
+      )}
 
       {!readOnly && (
         <>

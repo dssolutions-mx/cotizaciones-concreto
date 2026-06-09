@@ -48,7 +48,7 @@ export function statusToStep(status: ClosureStatus): ClosureStep {
     case 'physical_count': return 'physical_count'
     case 'reconciled':     return 'reconciliation'
     case 'justified':      return 'seal'
-    case 'sealed':         return 'export'
+    case 'sealed':         return 'theoretical'
     default:               return 'theoretical'
   }
 }
@@ -84,7 +84,7 @@ export default function ClosureStepper({
 }: Props) {
   const currentIdx = ORDER.indexOf(currentStep)
   const reachableIdx = ORDER.indexOf(reachableStep)
-  const navigable = !sealed && !!onStepClick
+  const navigable = !!onStepClick
 
   return (
     <nav
@@ -92,9 +92,9 @@ export default function ClosureStepper({
       className={cn('flex flex-wrap items-center gap-1 sm:gap-2', compact ? 'text-xs' : 'text-sm', className)}
     >
       {STEPS.map((step, idx) => {
-        const done = sealed ? true : idx < currentIdx
-        const active = !sealed && step.id === currentStep
-        const clickable = navigable && idx <= reachableIdx
+        const done = sealed ? step.id !== currentStep : idx < currentIdx
+        const active = step.id === currentStep
+        const clickable = navigable && (sealed || idx <= reachableIdx)
         const Icon = step.Icon
 
         const chipClass = cn(

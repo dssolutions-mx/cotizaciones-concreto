@@ -61,9 +61,9 @@ export default function ExportStep({ closure }: Props) {
       <div className="rounded-xl border border-stone-200 bg-white p-6 space-y-4">
         <p className="text-sm font-medium text-stone-800">Reporte de cierre para contabilidad y producción</p>
         <p className="text-sm text-stone-500">
-          Descarga el Excel definitivo con el detalle completo: puente teórico, conciliación, consumos por
-          remisión, entradas, ajustes y evidencia. Durante el proceso también pudiste generar un Excel
-          preliminar desde el encabezado del cierre.
+          Usa los pasos del cierre para revisar en pantalla la revisión teórica, conteo físico,
+          conciliación, justificaciones y firma. Descarga el Excel definitivo para el detalle completo:
+          consumos por remisión, entradas, ajustes y evidencia.
         </p>
         <div className="flex gap-3">
           <Button
