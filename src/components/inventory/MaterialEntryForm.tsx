@@ -357,69 +357,29 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     const plantId = currentPlant?.id || profile?.plant_id;
 
     if (materialId && plantId) {
+      setFulfillmentAlertsLoading(true)
       try {
-        const response = await fetch(`/api/inventory?material_id=${materialId}&plant_id=${plantId}`)
+        const params = new URLSearchParams({ plant_id: plantId, material_id: materialId })
+        if (formData.supplier_id) params.set('supplier_id', formData.supplier_id)
+        const response = await fetch(`/api/inventory/entry-form-context?${params.toString()}`)
         if (response.ok) {
           const data = await response.json()
-          const inventory = data.inventory.find((inv: any) => inv.material_id === materialId)
-          setCurrentInventory(inventory?.current_stock || 0)
-        }
-
-        if (isDosificador) {
-          setFulfillmentAlertsLoading(true)
-          try {
-            const ar = await fetch(
-              `/api/alerts/material?plant_id=${plantId}&material_id=${materialId}&active=true`
-            )
-            const json = ar.ok ? await ar.json() : null
-            const all = (json?.data || []) as MaterialAlert[]
-            const linkable = sortAlertsForEntry(
-              all.filter((a) => DOSIFICADOR_FULFILLMENT_STATUSES.has(a.status))
-            )
-            setFulfillmentAlerts(linkable)
+          setCurrentInventory(Number(data.current_stock ?? 0))
+          const linkable = sortAlertsForEntry((data.fulfillment_alerts || []) as MaterialAlert[])
+          setFulfillmentAlerts(linkable)
+          if (isDosificador) {
             if (linkable.length === 1) {
               setSelectedFulfillmentAlertId(linkable[0].id)
             }
-          } catch {
-            setFulfillmentAlerts([])
-          } finally {
-            setFulfillmentAlertsLoading(false)
-          }
-        }
-
-        if (!isDosificador) {
-          setFulfillmentAlertsLoading(true)
-          try {
-            const ar = await fetch(
-              `/api/alerts/material?plant_id=${plantId}&material_id=${materialId}&status=delivery_scheduled,po_linked,validated,pending_po`
-            )
-            const json = ar.ok ? await ar.json() : null
-            const all = (json?.data || []) as MaterialAlert[]
-            const linkable = sortAlertsForEntry(
-              all.filter((a) =>
-                ['delivery_scheduled', 'po_linked', 'validated', 'pending_po'].includes(a.status)
-              )
-            )
-            setFulfillmentAlerts(linkable)
+          } else {
             setSelectedFulfillmentAlertId('')
-          } catch {
-            setFulfillmentAlerts([])
-          } finally {
-            setFulfillmentAlertsLoading(false)
-          }
-
-          const params = new URLSearchParams()
-          params.set('plant_id', plantId)
-          params.set('material_id', materialId)
-          if (formData.supplier_id) params.set('supplier_id', formData.supplier_id)
-          const resPo = await fetch(`/api/po/items/search?${params.toString()}`)
-          if (resPo.ok) {
-            const dataPo = await resPo.json()
-            setPoItems(dataPo.items || [])
+            setPoItems(data.po_items || [])
           }
         }
       } catch (error) {
-        console.error('Error fetching current inventory:', error)
+        console.error('Error loading entry form context:', error)
+      } finally {
+        setFulfillmentAlertsLoading(false)
       }
     } else {
       setCurrentInventory(null)

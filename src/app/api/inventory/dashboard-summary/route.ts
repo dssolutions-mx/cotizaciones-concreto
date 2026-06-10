@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     let plantId = searchParams.get('plant_id') || profile.plant_id;
+    const materialIdFilter = searchParams.get('material_id') || undefined;
 
     if (!isGlobalInventoryRole(profile.role) && plantId !== profile.plant_id) {
       plantId = profile.plant_id;
@@ -75,27 +76,32 @@ export async function GET(request: NextRequest) {
       'delivered',
     ] as const;
 
-    const [invRes, cfgRes, alertsRes] = await Promise.all([
-      supabase
-        .from('material_inventory')
-        .select(`
-          material_id,
-          current_stock,
-          material:materials(id, material_name, category, unit_of_measure, is_active)
-        `)
-        .eq('plant_id', plantId)
-        .eq('material.is_active', true),
-      supabase
-        .from('material_reorder_config')
-        .select('id, material_id, reorder_point_kg, reorder_qty_kg, is_active')
-        .eq('plant_id', plantId)
-        .eq('is_active', true),
-      supabase
-        .from('material_alerts')
-        .select('id, material_id, alert_number, status, confirmation_deadline')
-        .eq('plant_id', plantId)
-        .in('status', [...activeAlertStatuses]),
-    ]);
+    let invQuery = supabase
+      .from('material_inventory')
+      .select(`
+        material_id,
+        current_stock,
+        material:materials(id, material_name, category, unit_of_measure, is_active)
+      `)
+      .eq('plant_id', plantId)
+      .eq('material.is_active', true);
+    if (materialIdFilter) invQuery = invQuery.eq('material_id', materialIdFilter);
+
+    let cfgQuery = supabase
+      .from('material_reorder_config')
+      .select('id, material_id, reorder_point_kg, reorder_qty_kg, is_active')
+      .eq('plant_id', plantId)
+      .eq('is_active', true);
+    if (materialIdFilter) cfgQuery = cfgQuery.eq('material_id', materialIdFilter);
+
+    let alertsQuery = supabase
+      .from('material_alerts')
+      .select('id, material_id, alert_number, status, confirmation_deadline')
+      .eq('plant_id', plantId)
+      .in('status', [...activeAlertStatuses]);
+    if (materialIdFilter) alertsQuery = alertsQuery.eq('material_id', materialIdFilter);
+
+    const [invRes, cfgRes, alertsRes] = await Promise.all([invQuery, cfgQuery, alertsQuery]);
 
     if (invRes.error) {
       console.error('dashboard-summary inventory:', invRes.error);

@@ -71,7 +71,9 @@ export default function MaterialRequestForm({ embedded = false }: MaterialReques
     }
     setContextLoading(true)
     try {
-      const res = await fetch(`/api/inventory/dashboard-summary?plant_id=${currentPlant.id}`)
+      const res = await fetch(
+        `/api/inventory/dashboard-summary?plant_id=${currentPlant.id}&material_id=${materialId}`
+      )
       const json = (await res.json()) as DashboardSummaryResponse & { error?: string }
       if (!res.ok || !json.success || !json.materials) {
         setMaterialContext(null)
