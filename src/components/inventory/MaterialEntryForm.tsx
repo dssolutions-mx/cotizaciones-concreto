@@ -60,8 +60,6 @@ function scaleKgFromEntryForm(opts: {
 }
 
 /** Dosificador: vincular recepciones a solicitudes con OC; la OC se surte de forma acumulativa (no “en una sola entrada”). */
-const DOSIFICADOR_FULFILLMENT_STATUSES = new Set<MaterialAlert['status']>(['po_linked', 'delivery_scheduled'])
-
 function normalizeAlertLinkedPo(
   a: MaterialAlert
 ): NonNullable<MaterialAlert['linked_po']> | null {
