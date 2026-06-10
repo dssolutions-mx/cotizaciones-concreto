@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     // Get user profile to check role
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select('role, plant_id')
       .eq('id', user.id)
       .single();
 
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
 
     // Get current inventory status
     try {
-      const { data: inventory, error: inventoryError } = await supabase
+      let inventoryQuery = supabase
         .from('material_inventory')
         .select(`
           *,
@@ -62,6 +62,12 @@ export async function GET(request: NextRequest) {
         `)
         .eq('plant_id', targetPlantId)
         .eq('material.is_active', true);
+
+      if (validatedQuery.material_id) {
+        inventoryQuery = inventoryQuery.eq('material_id', validatedQuery.material_id);
+      }
+
+      const { data: inventory, error: inventoryError } = await inventoryQuery;
 
       if (inventoryError) {
         // If the table doesn't exist, return empty inventory

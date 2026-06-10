@@ -225,7 +225,17 @@ export default function AddMaterialModal({ isOpen, onClose, onSuccess, plantId }
         payload.aggregate_extraction = undefined;
       }
 
-      await recipeService.createMaterial(payload);
+      const response = await fetch('/api/materials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          (result as { error?: string }).error || 'Error al crear el material'
+        );
+      }
 
       showSuccess('Material creado exitosamente');
       onSuccess();
@@ -233,7 +243,7 @@ export default function AddMaterialModal({ isOpen, onClose, onSuccess, plantId }
       resetForm();
     } catch (error) {
       console.error('Error creating material:', error);
-      showError('Error al crear el material');
+      showError(error instanceof Error ? error.message : 'Error al crear el material');
     } finally {
       setIsSubmitting(false);
     }

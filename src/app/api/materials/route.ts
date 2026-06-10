@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     // Get user profile to check role
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select('role, plant_id')
       .eq('id', user.id)
       .single();
 
@@ -160,22 +160,39 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Create material
+    const globalPlantRoles = ['EXECUTIVE', 'ADMIN_OPERATIONS'];
+    const targetPlantId = body.plant_id || profile.plant_id || null;
+    if (!targetPlantId) {
+      return NextResponse.json({ error: 'Plant ID is required' }, { status: 400 });
+    }
+    if (
+      !globalPlantRoles.includes(profile.role) &&
+      targetPlantId !== profile.plant_id
+    ) {
+      return NextResponse.json({ error: 'Cannot create materials for another plant' }, { status: 403 });
+    }
+
+    const { id: _id, created_at: _ca, updated_at: _ua, ...materialFields } = body;
+
     const { data: material, error } = await supabase
       .from('materials')
       .insert([{
-        ...body,
-        plant_id: profile.plant_id || null
+        ...materialFields,
+        plant_id: targetPlantId,
       }])
       .select()
       .single();
 
     if (error) {
       console.error('Error creating material:', error);
-      return NextResponse.json({ error: 'Failed to create material' }, { status: 500 });
+      const message =
+        error.code === '23505'
+          ? 'Ya existe un material con ese código en la planta'
+          : 'Failed to create material';
+      return NextResponse.json({ error: message }, { status: error.code === '23505' ? 409 : 500 });
     }
 
-    return NextResponse.json({ material });
+    return NextResponse.json({ success: true, data: material }, { status: 201 });
   } catch (error) {
     console.error('Error in materials API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

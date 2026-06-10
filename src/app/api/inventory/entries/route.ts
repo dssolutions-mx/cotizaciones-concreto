@@ -732,7 +732,7 @@ export async function POST(request: NextRequest) {
     // Get user profile to check role
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select('id, role, plant_id, business_unit_id')
       .eq('id', user.id)
       .single();
 
@@ -765,38 +765,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Check if user has access to the specified plant
-    const userPlantAccess = await supabase
-      .from('user_profiles')
-      .select('plant_id, business_unit_id, role')
-      .eq('id', profile.id)
-      .single();
-
-    if (!userPlantAccess.data) {
-      return NextResponse.json(
-        { success: false, error: 'Perfil de usuario no encontrado' },
-        { status: 404 }
-      );
-    }
-
-    const userProfile = userPlantAccess.data;
-    
     // Check plant access permissions
     let hasPlantAccess = false;
-    
-    if (canAccessAllInventoryPlants(userProfile.role)) {
+
+    if (canAccessAllInventoryPlants(profile.role)) {
       hasPlantAccess = true;
-    } else if (userProfile.plant_id === targetPlantId) {
-      hasPlantAccess = true; // User can access their assigned plant
-    } else if (userProfile.business_unit_id) {
-      // Check if plant belongs to user's business unit
+    } else if (profile.plant_id === targetPlantId) {
+      hasPlantAccess = true;
+    } else if (profile.business_unit_id) {
       const { data: plantBusinessUnit } = await supabase
         .from('plants')
         .select('business_unit_id')
         .eq('id', targetPlantId)
         .single();
-      
-      hasPlantAccess = plantBusinessUnit?.business_unit_id === userProfile.business_unit_id;
+
+      hasPlantAccess = plantBusinessUnit?.business_unit_id === profile.business_unit_id;
     }
 
     if (!hasPlantAccess) {
@@ -809,27 +792,26 @@ export async function POST(request: NextRequest) {
     // Generate entry number
     const entryDate = validatedData.entry_date || new Date().toISOString().split('T')[0];
     const dateStr = entryDate.replace(/-/g, '');
-    
-    // Get current sequence number (per plant; DB unique is on plant_id + entry_number)
-    const { data: lastEntry } = await supabase
-      .from('material_entries')
-      .select('entry_number')
-      .eq('plant_id', targetPlantId)
-      .ilike('entry_number', `ENT-${dateStr}-%`)
-      .order('entry_number', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+
+    const [{ data: lastEntry }, { data: currentInventory }] = await Promise.all([
+      supabase
+        .from('material_entries')
+        .select('entry_number')
+        .eq('plant_id', targetPlantId)
+        .ilike('entry_number', `ENT-${dateStr}-%`)
+        .order('entry_number', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('material_inventory')
+        .select('current_stock')
+        .eq('plant_id', targetPlantId)
+        .eq('material_id', validatedData.material_id)
+        .maybeSingle(),
+    ]);
 
     const sequence = lastEntry ? parseInt(lastEntry.entry_number.split('-').pop() || '0') + 1 : 1;
     const entryNumber = `ENT-${dateStr}-${sequence.toString().padStart(3, '0')}`;
-
-    // Get current inventory to calculate before/after values
-    const { data: currentInventory } = await supabase
-      .from('material_inventory')
-      .select('current_stock')
-      .eq('plant_id', targetPlantId)
-      .eq('material_id', validatedData.material_id)
-      .single();
 
     const inventoryBefore = currentInventory?.current_stock || 0;
     const inventoryAfter = inventoryBefore + validatedData.quantity_received;
@@ -1074,8 +1056,6 @@ export async function POST(request: NextRequest) {
       fleet_invoice: validatedData.fleet_invoice?.trim() || null,
     };
 
-    console.log('Inserting entry data:', entryData);
-
     const { data: entry, error: entryError } = await supabase
       .from('material_entries')
       .insert(entryData)
@@ -1088,109 +1068,109 @@ export async function POST(request: NextRequest) {
       throw new Error(`Error al crear entrada: ${entryError.message}`);
     }
 
-    // Keep PO line recepciones in sync (PUT path already did this; POST was missing it)
-    try {
-      if (effectivePoItemId && entry) {
-        const { data: poItemRow } = await supabase
-          .from('purchase_order_items')
-          .select('qty_received, qty_received_kg, qty_ordered, uom, is_service')
-          .eq('id', effectivePoItemId)
-          .single();
-        if (poItemRow) {
-          const { native: deltaNative, kg: deltaKg } = nativeKgFromEntryForPoItem(entry, poItemRow);
-          if (deltaNative > 0 || deltaKg > 0) {
-            const currentNative =
-              Number(poItemRow.qty_received ?? 0) + deltaNative;
-            const currentKg = Number(poItemRow.qty_received_kg ?? 0) + deltaKg;
-            const orderedNative = Number(poItemRow.qty_ordered || 0);
-            let newStatus = 'partial';
-            if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
-            const updateFields: Record<string, unknown> = {
-              qty_received: currentNative,
-              status: newStatus,
-            };
-            if (deltaKg > 0) updateFields.qty_received_kg = currentKg;
-            const { error: updMatErr } = await supabase
-              .from('purchase_order_items')
-              .update(updateFields)
-              .eq('id', effectivePoItemId);
-            if (updMatErr) console.error('POST entry: avance PO material:', updMatErr);
-          }
-        }
-      }
+    const syncMaterialPoProgress = async () => {
+      if (!effectivePoItemId || !entry) return;
+      const { data: poItemRow } = await supabase
+        .from('purchase_order_items')
+        .select('qty_received, qty_received_kg, qty_ordered, uom, is_service')
+        .eq('id', effectivePoItemId)
+        .single();
+      if (!poItemRow) return;
 
+      const { native: deltaNative, kg: deltaKg } = nativeKgFromEntryForPoItem(entry, poItemRow);
+      if (deltaNative <= 0 && deltaKg <= 0) return;
+
+      const currentNative = Number(poItemRow.qty_received ?? 0) + deltaNative;
+      const currentKg = Number(poItemRow.qty_received_kg ?? 0) + deltaKg;
+      const orderedNative = Number(poItemRow.qty_ordered || 0);
+      let newStatus = 'partial';
+      if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+      const updateFields: Record<string, unknown> = {
+        qty_received: currentNative,
+        status: newStatus,
+      };
+      if (deltaKg > 0) updateFields.qty_received_kg = currentKg;
+      const { error: updMatErr } = await supabase
+        .from('purchase_order_items')
+        .update(updateFields)
+        .eq('id', effectivePoItemId);
+      if (updMatErr) console.error('POST entry: avance PO material:', updMatErr);
+    };
+
+    const syncFleetPoProgress = async () => {
       const fleetItemId = validatedData.fleet_po_item_id;
       const fleetQty =
         fleetTonsFromScale != null && fleetTonsFromScale > 0
           ? fleetTonsFromScale
           : validatedData.fleet_qty_entered;
-      if (fleetItemId && fleetQty != null && Number(fleetQty) > 0) {
-        const { data: fleetItemRow } = await supabase
-          .from('purchase_order_items')
-          .select('qty_received, qty_received_kg, qty_ordered, uom')
-          .eq('id', fleetItemId)
-          .single();
-        if (fleetItemRow) {
-          const delta = Number(fleetQty);
-          const currentNative =
-            Number(fleetItemRow.qty_received ?? 0) + delta;
-          const orderedNative = Number(fleetItemRow.qty_ordered || 0);
-          let newStatus = 'partial';
-          if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
-          const fleetUpd: Record<string, unknown> = {
-            qty_received: currentNative,
-            status: newStatus,
-          };
-          if (fleetItemRow.uom === 'tons') {
-            fleetUpd.qty_received_kg =
-              Number(fleetItemRow.qty_received_kg ?? 0) + Number(validatedData.quantity_received);
-          }
-          const { error: updFleetErr } = await supabase
-            .from('purchase_order_items')
-            .update(fleetUpd)
-            .eq('id', fleetItemId);
-          if (updFleetErr) console.error('POST entry: avance PO flota:', updFleetErr);
-        }
+      if (!fleetItemId || fleetQty == null || Number(fleetQty) <= 0) return;
+
+      const { data: fleetItemRow } = await supabase
+        .from('purchase_order_items')
+        .select('qty_received, qty_received_kg, qty_ordered, uom')
+        .eq('id', fleetItemId)
+        .single();
+      if (!fleetItemRow) return;
+
+      const delta = Number(fleetQty);
+      const currentNative = Number(fleetItemRow.qty_received ?? 0) + delta;
+      const orderedNative = Number(fleetItemRow.qty_ordered || 0);
+      let newStatus = 'partial';
+      if (currentNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+      const fleetUpd: Record<string, unknown> = {
+        qty_received: currentNative,
+        status: newStatus,
+      };
+      if (fleetItemRow.uom === 'tons') {
+        fleetUpd.qty_received_kg =
+          Number(fleetItemRow.qty_received_kg ?? 0) + Number(validatedData.quantity_received);
       }
-    } catch (poProgressErr) {
-      console.error('POST entry: actualización PO (no fatal):', poProgressErr);
-    }
+      const { error: updFleetErr } = await supabase
+        .from('purchase_order_items')
+        .update(fleetUpd)
+        .eq('id', fleetItemId);
+      if (updFleetErr) console.error('POST entry: avance PO flota:', updFleetErr);
+    };
 
-    // Get the auto-created lot (trigger creates it on insert)
-    const { data: lot } = await supabase
-      .from('material_lots')
-      .select('id, lot_number')
-      .eq('entry_id', entry.id)
-      .single();
-
-    // Resolve material alert: only when alert_id is explicitly provided (no auto-close heuristics)
     let resolvedAlertNumber: string | null = null;
+    let lot: { id: string; lot_number: string } | null = null;
     try {
+      const [lotRes] = await Promise.all([
+        supabase
+          .from('material_lots')
+          .select('id, lot_number')
+          .eq('entry_id', entry.id)
+          .single(),
+        syncMaterialPoProgress(),
+        syncFleetPoProgress(),
+      ]);
+      lot = lotRes.data;
+
       if (explicitAlertCtx) {
         resolvedAlertNumber = explicitAlertCtx.alert_number;
-        await supabase
-          .from('material_alerts')
-          .update({
-            status: 'closed',
-            resolved_entry_id: entry.id,
-            resolved_lot_id: lot?.id || null,
-            resolved_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', explicitAlertCtx.id);
-
-        await supabase.from('material_alert_events').insert({
-          alert_id: explicitAlertCtx.id,
-          event_type: 'resolved_by_dosificador_entry',
-          from_status: explicitAlertCtx.status,
-          to_status: 'closed',
-          performed_by: profile.id,
-          details: { entry_id: entry.id, lot_id: lot?.id, alert_id: explicitAlertCtx.id },
-        });
+        await Promise.all([
+          supabase
+            .from('material_alerts')
+            .update({
+              status: 'closed',
+              resolved_entry_id: entry.id,
+              resolved_lot_id: lot?.id || null,
+              resolved_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', explicitAlertCtx.id),
+          supabase.from('material_alert_events').insert({
+            alert_id: explicitAlertCtx.id,
+            event_type: 'resolved_by_dosificador_entry',
+            from_status: explicitAlertCtx.status,
+            to_status: 'closed',
+            performed_by: profile.id,
+            details: { entry_id: entry.id, lot_id: lot?.id, alert_id: explicitAlertCtx.id },
+          }),
+        ]);
       }
-    } catch (alertErr) {
-      // Non-blocking — alert resolution failure should not block entry creation
-      console.warn('Alert resolution failed:', alertErr);
+    } catch (postInsertErr) {
+      console.error('POST entry: post-insert side effects (no fatal):', postInsertErr);
     }
 
     return NextResponse.json({
