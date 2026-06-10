@@ -23,6 +23,7 @@ import {
   Calendar,
   Truck,
   RefreshCw,
+  Loader2,
 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Badge } from '@/components/ui/badge'
@@ -180,6 +181,12 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   const [pendingEvidenceEntry, setPendingEvidenceEntry] = useState<{
     id: string
     entry_number: string
+  } | null>(null)
+  /** Evidencia subiéndose en segundo plano tras guardar la entrada. */
+  const [backgroundEvidenceUpload, setBackgroundEvidenceUpload] = useState<{
+    id: string
+    entry_number: string
+    fileCount: number
   } | null>(null)
   const [existingDocuments, setExistingDocuments] = useState<any[]>([])
   const [poItems, setPoItems] = useState<any[]>([])
@@ -711,6 +718,91 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     return prev.map((f) => repl.get(f.file) ?? f)
   }
 
+  const resetFormAfterSuccessfulEntry = () => {
+    setFormData({
+      material_id: '',
+      quantity_received: 0,
+      supplier_id: '',
+      supplier_invoice: '',
+      fleet_supplier_id: '',
+      fleet_invoice: '',
+      notes: '',
+      entry_date: new Date().toISOString().split('T')[0],
+    })
+    setCurrentInventory(null)
+    setPendingFiles([])
+    setExistingDocuments([])
+    setSelectedPoItemId('')
+    setSelectedFleetPoItemId('')
+    setFleetQtyEntered(0)
+    setReceivedQtyEntered(0)
+    setReceivedUom('kg')
+    setVolumetricWeight(undefined)
+    setAutoFilledFromPO({
+      material: false,
+      supplier: false,
+      uom: false,
+      volumetricWeight: false,
+    })
+    setFulfillmentAlerts([])
+    setSelectedFulfillmentAlertId('')
+    supplierAutoFromPoRef.current = null
+    setDosificadorReceiptContext(null)
+    setDosificadorSupplierOverride(false)
+  }
+
+  const startBackgroundEvidenceUpload = (
+    entryId: string,
+    entryNumber: string,
+    filesToUpload: PendingFile[]
+  ) => {
+    if (filesToUpload.length === 0) return
+
+    setBackgroundEvidenceUpload({
+      id: entryId,
+      entry_number: entryNumber,
+      fileCount: filesToUpload.length,
+    })
+
+    void (async () => {
+      try {
+        const { allOk, results, uploadedCount } = await uploadEntryDocuments(
+          entryId,
+          filesToUpload
+        )
+        if (allOk) {
+          toast.success(
+            uploadedCount > 0
+              ? `${uploadedCount} archivo(s) de evidencia guardado(s) para ${entryNumber}.`
+              : `Evidencia guardada para ${entryNumber}.`
+          )
+          return
+        }
+
+        setPendingEvidenceEntry({ id: entryId, entry_number: entryNumber })
+        setPendingFiles(results)
+        toast.error(
+          `La entrada ${entryNumber} se guardó, pero falló la evidencia. Revise los archivos y use «Reintentar subida de evidencia».`
+        )
+      } catch (error) {
+        console.error('Background evidence upload failed:', error)
+        setPendingEvidenceEntry({ id: entryId, entry_number: entryNumber })
+        setPendingFiles(
+          filesToUpload.map((fileInfo) => ({
+            ...fileInfo,
+            status: 'error' as const,
+            error: 'Error de conexión al subir evidencia',
+          }))
+        )
+        toast.error(
+          `La entrada ${entryNumber} se guardó, pero no se pudo subir la evidencia. Intente de nuevo.`
+        )
+      } finally {
+        setBackgroundEvidenceUpload(null)
+      }
+    })()
+  }
+
   const handleRetryEvidence = async () => {
     if (!pendingEvidenceEntry) return
     const toUpload = pendingFiles.filter((f) => f.status === 'pending' || f.status === 'error')
@@ -962,76 +1054,30 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         const data = await response.json()
         const entryId = data.entry_id as string | undefined
         const entryNumber = String(data.data?.entry_number ?? entryId?.slice(0, 8) ?? '—')
-
-        let evidenceUploadedCount = 0
-        if (entryId && evidenceQueue.length > 0) {
-          const { allOk, results, uploadedCount } = await uploadEntryDocuments(entryId, evidenceQueue)
-          evidenceUploadedCount = uploadedCount
-          setPendingFiles((prev) => mergePendingFileResults(prev, evidenceQueue, results))
-          await fetchExistingDocuments(entryId)
-
-          if (!allOk) {
-            if (data.resolved_alert_number) {
-              setEntrySuccessInfo({ alertNumber: data.resolved_alert_number })
-            } else {
-              setEntrySuccessInfo(null)
-            }
-            setPendingEvidenceEntry({ id: entryId, entry_number: String(entryNumber) })
-            toast.error(
-              `La entrada ${entryNumber} se guardó, pero falló la evidencia. Revise los errores en la lista de archivos y use «Reintentar subida de evidencia». No registre otra entrada por la misma recepción.`
-            )
-            setLoading(false)
-            return
-          }
-
-          setPendingEvidenceEntry(null)
-        }
+        const filesToUpload = [...evidenceQueue]
 
         if (data.resolved_alert_number) {
           setEntrySuccessInfo({ alertNumber: data.resolved_alert_number })
-          toast.success(`Entrada registrada. Solicitud ${data.resolved_alert_number} cerrada.`)
+          toast.success(
+            `Entrada ${entryNumber} registrada. Solicitud ${data.resolved_alert_number} cerrada.${
+              filesToUpload.length > 0 ? ' Subiendo evidencia en segundo plano…' : ''
+            }`
+          )
         } else {
           setEntrySuccessInfo(null)
-          toast.success('Entrada registrada correctamente')
+          toast.success(
+            filesToUpload.length > 0
+              ? `Entrada ${entryNumber} registrada. Subiendo evidencia en segundo plano…`
+              : `Entrada ${entryNumber} registrada correctamente`
+          )
         }
 
-        if (evidenceUploadedCount > 0) {
-          toast.success(`${evidenceUploadedCount} archivo(s) de evidencia guardado(s).`)
-        }
-        
-        // Reset form
-        setFormData({
-          material_id: '',
-          quantity_received: 0,
-          supplier_id: '',
-          supplier_invoice: '',
-          fleet_supplier_id: '',
-          fleet_invoice: '',
-          notes: '',
-          entry_date: new Date().toISOString().split('T')[0]
-        })
-        setCurrentInventory(null)
-        setPendingFiles([]) // Clear pending files after successful upload
-        setSelectedPoItemId('')
-        setSelectedFleetPoItemId('')
-        setFleetQtyEntered(0)
-        setReceivedQtyEntered(0)
-        setReceivedUom('kg')
-        setVolumetricWeight(undefined)
-        setAutoFilledFromPO({
-          material: false,
-          supplier: false,
-          uom: false,
-          volumetricWeight: false
-        })
-        setFulfillmentAlerts([])
-        setSelectedFulfillmentAlertId('')
-        supplierAutoFromPoRef.current = null
-        setDosificadorReceiptContext(null)
-        setDosificadorSupplierOverride(false)
-        setPendingEvidenceEntry(null)
-
+        resetFormAfterSuccessfulEntry()
         onSuccess?.()
+
+        if (entryId && filesToUpload.length > 0) {
+          startBackgroundEvidenceUpload(entryId, entryNumber, filesToUpload)
+        }
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Error al registrar la entrada')
@@ -1087,6 +1133,22 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             <Button type="button" variant="ghost" size="sm" onClick={() => setEntrySuccessInfo(null)}>
               Cerrar aviso
             </Button>
+          </div>
+        </div>
+      )}
+
+      {backgroundEvidenceUpload && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/95 p-4 flex items-start gap-2">
+          <Loader2 className="h-5 w-5 text-sky-700 shrink-0 mt-0.5 animate-spin" />
+          <div className="min-w-0">
+            <p className="font-medium text-sky-950">Subiendo evidencia</p>
+            <p className="text-sm text-sky-900 mt-0.5">
+              Entrada{' '}
+              <span className="font-mono font-semibold">{backgroundEvidenceUpload.entry_number}</span>
+              {' — '}
+              {backgroundEvidenceUpload.fileCount} archivo
+              {backgroundEvidenceUpload.fileCount === 1 ? '' : 's'}. Ya puede registrar otra recepción.
+            </p>
           </div>
         </div>
       )}
