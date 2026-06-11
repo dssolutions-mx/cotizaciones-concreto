@@ -4,7 +4,8 @@
  */
 
 import ExcelJS from 'exceljs';
-import { format } from 'date-fns';
+import { eachDayOfInterval, endOfWeek, format, parseISO, startOfWeek } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { DC_DOCUMENT_THEME as C, DC_NUMBER_FORMATS as FMT, getDocumentContact } from '@/lib/reports/branding';
 import {
   computeComplianceRemisionStats,
@@ -799,6 +800,95 @@ function buildDetalleSheet(ws: ExcelJS.Worksheet, wb: ExcelJS.Workbook, rows: Hr
   ws.properties.tabColor = { argb: argb(C.navy) };
 }
 
+function buildWaterEntriesSheet(
+  ws: ExcelJS.Worksheet,
+  wb: ExcelJS.Workbook,
+  data: HrWeeklyResponse,
+  opts: HrWeeklyExcelOptions,
+) {
+  const plants = data.waterEntriesByPlant ?? [];
+  if (plants.length === 0) return;
+
+  const start = parseISO(opts.startDate);
+  const end = parseISO(opts.endDate);
+  const wStart = startOfWeek(start, { weekStartsOn: 1 });
+  const wEnd = endOfWeek(end, { weekStartsOn: 1 });
+  const weekDays = eachDayOfInterval({ start: wStart, end: wEnd }).map((day) => ({
+    dateStr: format(day, 'yyyy-MM-dd'),
+    label: format(day, 'd MMM', { locale: es }),
+  }));
+
+  const colCount = 2 + weekDays.length;
+  ws.columns = [
+    { width: 28 },
+    { width: 10 },
+    ...weekDays.map(() => ({ width: 10 })),
+    { width: 10 },
+  ];
+
+  const periodo = `${opts.startDate} — ${opts.endDate}`;
+  let r = applyTopBanner(ws, wb, colCount, 'RH — Entradas de agua por planta', [
+    ['Período', periodo],
+    ['Generado', format(opts.generatedAt, 'dd/MM/yyyy HH:mm')],
+  ]);
+
+  ws.getRow(r).height = 6;
+  r++;
+
+  const headerRow = r;
+  const headers = ['Planta', 'Código', ...weekDays.map((d) => d.label), 'Total'];
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(r, i + 1);
+    cell.value = h;
+    Object.assign(cell, columnHeaderStyle());
+  });
+  ws.getRow(r).height = 20;
+  r++;
+
+  const sorted = [...plants].sort(
+    (a, b) => b.totalEntries - a.totalEntries || a.name.localeCompare(b.name, 'es'),
+  );
+
+  sorted.forEach((p, idx) => {
+    const rowTotal = Object.values(p.dayMatrix).reduce((s, c) => s + c, 0);
+    const values: (string | number)[] = [
+      p.name,
+      p.code,
+      ...weekDays.map((d) => p.dayMatrix[d.dateStr] ?? 0),
+      rowTotal,
+    ];
+    values.forEach((val, ci) => {
+      const cell = ws.getCell(r, ci + 1);
+      cell.value = val;
+      Object.assign(cell, dataStyle(idx % 2 === 1));
+      if (ci >= 2) cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    r++;
+  });
+
+  const dayTotals = weekDays.map((d) =>
+    sorted.reduce((sum, p) => sum + (p.dayMatrix[d.dateStr] ?? 0), 0),
+  );
+  const grandTotal = dayTotals.reduce((a, b) => a + b, 0);
+  const totalValues: (string | number)[] = ['Total entradas', '', ...dayTotals, grandTotal];
+  totalValues.forEach((val, ci) => {
+    const cell = ws.getCell(r, ci + 1);
+    Object.assign(cell, totalStyle());
+    if (ci === 0) {
+      cell.value = val;
+      cell.alignment = { horizontal: 'left', vertical: 'middle' };
+    } else if (ci >= 2) {
+      cell.value = val;
+      cell.numFmt = FMT.integer;
+    } else {
+      cell.value = '';
+    }
+  });
+
+  ws.views = [{ state: 'frozen', xSplit: 2, ySplit: headerRow, activeCell: 'C1' }];
+  ws.properties.tabColor = { argb: argb(C.green) };
+}
+
 /**
  * Full RH weekly workbook: resumen → conductores → unidades → incidencias → reasignaciones → detalle.
  */
@@ -839,6 +929,14 @@ export async function buildHrWeeklyRemisionesExcel(
     opts,
     remById,
   );
+  if ((data.waterEntriesByPlant ?? []).length > 0) {
+    buildWaterEntriesSheet(
+      wb.addWorksheet('Entradas agua', { pageSetup: { fitToPage: true, orientation: 'landscape' } }),
+      wb,
+      data,
+      opts,
+    );
+  }
   buildReasignacionesSheet(
     wb.addWorksheet('Reasignaciones', { pageSetup: { fitToPage: true, orientation: 'landscape' } }),
     wb,

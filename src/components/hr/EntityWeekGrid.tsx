@@ -30,6 +30,11 @@ export type EntityWeekGridProps = {
   /** First column header, e.g. "Conductor" or "Unidad" */
   entityColumnLabel: string;
   rows: WeekGridEntityRow[];
+  /** Noun for count tooltips and footer (default: viaje/viajes) */
+  countNoun?: { one: string; many: string };
+  /** Footer label for row totals (default: Total viajes) */
+  totalRowLabel?: string;
+  emptyMessage?: string;
   onDayClick?: (date: string) => void;
   onEntityClick?: (name: string) => void;
   className?: string;
@@ -43,12 +48,17 @@ function formatDisplayDate(yyyyMmDd: string) {
   return format(d, 'd MMM', { locale: es });
 }
 
+const DEFAULT_COUNT_NOUN = { one: 'viaje', many: 'viajes' };
+
 export function EntityWeekGrid({
   dateRange,
   title,
   description,
   entityColumnLabel,
   rows: rawRows,
+  countNoun = DEFAULT_COUNT_NOUN,
+  totalRowLabel = 'Total viajes',
+  emptyMessage = 'No hay filas en este período.',
   onDayClick,
   onEntityClick,
   className,
@@ -133,7 +143,7 @@ export function EntityWeekGrid({
             </div>
 
             {sortedRows.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-gray-500">No hay filas en este período.</div>
+              <div className="px-4 py-10 text-center text-sm text-gray-500">{emptyMessage}</div>
             ) : (
               sortedRows.map((row, idx) => {
                 const rowTotal = Object.values(row.dayMatrix).reduce((sum, c) => sum + c, 0);
@@ -200,10 +210,11 @@ export function EntityWeekGrid({
                       const flagged = row.complianceDayMatrix?.[day.dateStr] ?? 0;
                       const hasTrips = count > 0;
                       const hasIncident = flagged > 0;
+                      const countLabel = count === 1 ? countNoun.one : countNoun.many;
                       const dayTitle = hasTrips
                         ? hasIncident
-                          ? `${count} viaje${count !== 1 ? 's' : ''} · ${flagged} con incidencia el ${format(day.date, "d 'de' MMMM", { locale: es })}`
-                          : `${count} viaje${count !== 1 ? 's' : ''} el ${format(day.date, "d 'de' MMMM", { locale: es })}`
+                          ? `${count} ${countLabel} · ${flagged} con incidencia el ${format(day.date, "d 'de' MMMM", { locale: es })}`
+                          : `${count} ${countLabel} el ${format(day.date, "d 'de' MMMM", { locale: es })}`
                         : undefined;
                       return (
                         <div
@@ -269,7 +280,7 @@ export function EntityWeekGrid({
                 gridTemplateColumns: `minmax(200px, 1.1fr) repeat(${weekDays.length}, minmax(64px, 1fr)) 92px`,
               }}
             >
-              <div className="px-4 py-3 text-sm text-gray-700 border-r">Total viajes</div>
+              <div className="px-4 py-3 text-sm text-gray-700 border-r">{totalRowLabel}</div>
               {weekDays.map((day) => {
                 const dayTotal = sortedRows.reduce((sum, r) => sum + (r.dayMatrix[day.dateStr] ?? 0), 0);
                 return (

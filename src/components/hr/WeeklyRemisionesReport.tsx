@@ -33,6 +33,7 @@ import PayrollWeekGrid from '@/components/hr/PayrollWeekGrid';
 import UnitsWeekGrid from '@/components/hr/UnitsWeekGrid';
 import { UnitsSummaryTable } from '@/components/hr/UnitsSummaryTable';
 import { HrWeeklyCompliancePanel } from '@/components/hr/HrWeeklyCompliancePanel';
+import { EntityWeekGrid } from '@/components/hr/EntityWeekGrid';
 import {
   fetchHrWeeklyRemisiones,
   type HrWeeklyRemisionRow,
@@ -292,6 +293,15 @@ export default function WeeklyRemisionesReport() {
       )
       .slice(0, 8);
   }, [data?.byUnit]);
+
+  const waterEntriesGridRows = useMemo(() => {
+    return (data?.waterEntriesByPlant ?? []).map((p) => ({
+      key: p.plant_id,
+      name: `${p.name} (${p.code})`,
+      trips: p.totalEntries,
+      dayMatrix: p.dayMatrix,
+    }));
+  }, [data?.waterEntriesByPlant]);
 
   const handleThisWeek = () => {
     setDateRange(initialWeekRange());
@@ -811,6 +821,17 @@ export default function WeeklyRemisionesReport() {
                   </CardContent>
                 </Card>
               </div>
+
+              <EntityWeekGrid
+                dateRange={dateRange}
+                title="Entradas de agua por planta"
+                description="Conteo de recepciones de material agua por día (ISO Lun–Dom)"
+                entityColumnLabel="Planta"
+                rows={waterEntriesGridRows}
+                countNoun={{ one: 'entrada', many: 'entradas' }}
+                totalRowLabel="Total entradas"
+                emptyMessage="No hubo entradas de agua en el período."
+              />
 
               {data.byUnit && data.byUnit.length > 0 && (
                 <Card>

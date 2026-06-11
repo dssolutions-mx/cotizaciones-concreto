@@ -9,6 +9,7 @@ import {
 } from '@/lib/hr/complianceFromRuns';
 import { fetchReassignmentNotesByRemisionNumbers } from '@/lib/hr/reassignmentNotes';
 import { normalizeRemisionFilterKey as normalizeKey } from '@/lib/hr/remisionFilterKeys';
+import { fetchWaterEntryCountsByPlantDay } from '@/lib/hr/waterEntries';
 
 type RemisionRow = {
   id: string;
@@ -588,6 +589,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let waterEntriesByPlant: Awaited<ReturnType<typeof fetchWaterEntryCountsByPlantDay>> = [];
+    try {
+      waterEntriesByPlant = await fetchWaterEntryCountsByPlantDay(service, {
+        startDate,
+        endDate,
+        plantIds: effectivePlantIds.length > 0 ? effectivePlantIds : undefined,
+      });
+    } catch (waterErr) {
+      console.error('[HR API] water entries:', waterErr);
+    }
+
     const driverComplianceDay = new Map<string, Map<string, number>>();
     const unitComplianceDay = new Map<string, Map<string, number>>();
     if (complianceByRemisionId) {
@@ -721,6 +733,7 @@ export async function POST(request: NextRequest) {
             b.trips - a.trips || b.total_volume - a.total_volume || a.unidad.localeCompare(b.unidad),
         ),
       facets,
+      waterEntriesByPlant,
       ...(complianceByRemisionId
         ? {
             complianceByRemisionId,

@@ -1,4 +1,7 @@
 import type { HrComplianceFinding } from '@/lib/hr/complianceFromRuns';
+import type { HrWaterEntriesByPlant } from '@/lib/hr/waterEntries';
+
+export type { HrWaterEntriesByPlant };
 
 export type HrWeeklyComplianceDispute = {
   id: string;
@@ -107,6 +110,8 @@ export type HrWeeklyResponse = {
     };
   }>;
   facets: HrWeeklyFacets;
+  /** Water material entries (category agua) per plant/day in range */
+  waterEntriesByPlant?: HrWaterEntriesByPlant[];
   /** Present when the request set includeCompliance: true */
   complianceByRemisionId?: Record<string, HrComplianceFinding[]>;
   complianceByDriverKey?: Record<string, { flaggedTrips: number }>;
