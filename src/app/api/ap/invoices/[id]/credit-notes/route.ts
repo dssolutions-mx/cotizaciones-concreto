@@ -42,7 +42,10 @@ export async function GET(
       .order('created_at', { ascending: false })
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ credit_notes: allocations ?? [] })
+    const filtered = (allocations ?? []).filter(
+      (a) => (a.credit_note as { status?: string } | null)?.status !== 'void',
+    )
+    return NextResponse.json({ credit_notes: filtered })
   } catch (err) {
     console.error('GET credit-notes error:', err)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })

@@ -89,7 +89,7 @@ export default function CreditNotesPayablesTab({
   const [cnContext, setCnContext] = useState<{ groupId: string; plantId: string } | null>(null)
   const [bulkCnDialogOpen, setBulkCnDialogOpen] = useState(false)
   const [editCn, setEditCn] = useState<CreditNoteRow | null>(null)
-  const [voidingId, setVoidingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const mxn = useMemo(
     () => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }),
@@ -165,22 +165,23 @@ export default function CreditNotesPayablesTab({
     return map
   }, [filteredNotes])
 
-  const handleVoidCreditNote = async (note: CreditNoteRow) => {
-    const reason = window.prompt('Motivo de anulación (opcional):')
-    if (reason === null) return
-    setVoidingId(note.id)
+  const handleDeleteCreditNote = async (note: CreditNoteRow) => {
+    const label = note.credit_number ?? note.id.slice(0, 8)
+    if (!window.confirm(
+      `¿Eliminar por completo la nota de crédito ${label}?\n\nSe revertirán saldos de factura y precios de entrada. Esta acción no se puede deshacer.`,
+    )) return
+    setDeletingId(note.id)
     try {
-      const qs = reason.trim() ? `?reason=${encodeURIComponent(reason.trim())}` : ''
-      const res = await fetch(`/api/ap/credit-notes/${note.id}${qs}`, { method: 'DELETE' })
+      const res = await fetch(`/api/ap/credit-notes/${note.id}`, { method: 'DELETE' })
       if (!res.ok) {
         const data = await res.json()
-        toast.error(data.error ?? 'No se pudo anular')
+        toast.error(data.error ?? 'No se pudo eliminar')
         return
       }
-      toast.success('Nota de crédito anulada')
+      toast.success('Nota de crédito eliminada')
       setReloadKey((k) => k + 1)
     } finally {
-      setVoidingId(null)
+      setDeletingId(null)
     }
   }
 
@@ -515,14 +516,10 @@ export default function CreditNotesPayablesTab({
                                       ? () => setEditCn(note)
                                       : undefined
                                   }
-                                  onVoid={
-                                    note.status !== 'void'
-                                      ? () => void handleVoidCreditNote(note)
-                                      : undefined
-                                  }
+                                  onDelete={() => void handleDeleteCreditNote(note)}
                                 />
-                                {voidingId === note.id && (
-                                  <p className="text-[10px] text-stone-400 mt-1">Anulando…</p>
+                                {deletingId === note.id && (
+                                  <p className="text-[10px] text-stone-400 mt-1">Eliminando…</p>
                                 )}
                               </div>
                             </div>

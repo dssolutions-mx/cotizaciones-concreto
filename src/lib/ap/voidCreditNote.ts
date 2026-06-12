@@ -80,15 +80,15 @@ async function repropagateItems(admin: SupabaseClient, items: AffectedItem[]): P
   }
 }
 
-export type VoidCreditNoteResult =
+export type DeleteCreditNoteResult =
   | { ok: true }
   | { ok: false; error: string; status: number }
 
-export async function voidCreditNote(
+/** Removes the NC and all allocations; reverts entry prices and invoice status. */
+export async function deleteCreditNote(
   _supabase: SupabaseClient,
   creditNoteId: string,
-  reason?: string | null,
-): Promise<VoidCreditNoteResult> {
+): Promise<DeleteCreditNoteResult> {
   let admin: ReturnType<typeof createServiceClient>
   try {
     admin = createServiceClient()
@@ -98,12 +98,11 @@ export async function voidCreditNote(
 
   const { data: cn } = await admin
     .from('invoice_credit_notes')
-    .select('id, status, notes')
+    .select('id')
     .eq('id', creditNoteId)
     .single()
 
   if (!cn) return { ok: false, error: 'Nota de crédito no encontrada', status: 404 }
-  if (cn.status === 'void') return { ok: false, error: 'La nota de crédito ya está anulada', status: 400 }
 
   const affected = await loadAffectedItems(admin, creditNoteId)
   const invoiceIds = [...new Set(affected.map((i) => i.invoice_id))]
@@ -119,14 +118,14 @@ export async function voidCreditNote(
     await admin.from('credit_note_invoice_allocations').delete().eq('credit_note_id', creditNoteId)
   }
 
-  const voidNote = reason?.trim()
-    ? [cn.notes, `[Anulada] ${reason.trim()}`].filter(Boolean).join('\n')
-    : cn.notes
-
-  await admin
+  const { error: delErr } = await admin
     .from('invoice_credit_notes')
-    .update({ status: 'void', notes: voidNote ?? null })
+    .delete()
     .eq('id', creditNoteId)
+
+  if (delErr) {
+    return { ok: false, error: delErr.message ?? 'No se pudo eliminar la nota de crédito', status: 500 }
+  }
 
   await repropagateItems(admin, affected)
 
@@ -137,7 +136,7 @@ export async function voidCreditNote(
   return { ok: true }
 }
 
-export type RemoveAllocationResult = VoidCreditNoteResult
+export type RemoveAllocationResult = DeleteCreditNoteResult
 
 export async function removeCreditNoteInvoiceAllocation(
   _supabase: SupabaseClient,
@@ -158,18 +157,23 @@ export async function removeCreditNoteInvoiceAllocation(
 
   if (!alloc) return { ok: false, error: 'Asignación no encontrada', status: 404 }
 
-  const cnStatus = (alloc.credit_note as { status: string } | null)?.status
-  if (cnStatus === 'void') {
-    return { ok: false, error: 'La nota de crédito está anulada', status: 400 }
-  }
-
   const affected = await loadAffectedItems(admin, alloc.credit_note_id as string, alloc.invoice_id as string)
 
   await admin.from('invoice_credit_note_allocations').delete().eq('invoice_allocation_id', allocationId)
   await admin.from('credit_note_invoice_allocations').delete().eq('id', allocationId)
 
+  const { data: remaining } = await admin
+    .from('credit_note_invoice_allocations')
+    .select('id')
+    .eq('credit_note_id', alloc.credit_note_id as string)
+
+  if (!remaining || remaining.length === 0) {
+    await admin.from('invoice_credit_notes').delete().eq('id', alloc.credit_note_id as string)
+  } else {
+    await recalcCreditNoteStatus(admin, alloc.credit_note_id as string)
+  }
+
   await repropagateItems(admin, affected)
-  await recalcCreditNoteStatus(admin, alloc.credit_note_id as string)
   await recalcInvoiceStatusAfterCreditChange(admin, alloc.invoice_id as string)
 
   return { ok: true }
@@ -198,7 +202,6 @@ export async function updateCreditNoteAllocations(
     .single()
 
   if (!cn) return { ok: false, error: 'Nota de crédito no encontrada', status: 404 }
-  if (cn.status === 'void') return { ok: false, error: 'No se puede reasignar una NC anulada', status: 400 }
 
   const allocSum = invoice_allocations.reduce((s, a) => s + Number(a.allocated_subtotal ?? 0), 0)
   if (Math.abs(allocSum - Number(cn.amount)) > 0.01) {

@@ -39,7 +39,7 @@ type Props = {
   showActions?: boolean
   onRemoveAllocation?: (allocationId: string) => void
   onReassign?: () => void
-  onVoid?: () => void
+  onDelete?: () => void
   adminActions?: boolean
 }
 
@@ -49,7 +49,7 @@ export default function CreditNoteAllocDetail({
   showActions = false,
   onRemoveAllocation,
   onReassign,
-  onVoid,
+  onDelete,
   adminActions = false,
 }: Props) {
   if (allocations.length === 0) {
@@ -120,7 +120,7 @@ export default function CreditNoteAllocDetail({
         )
       })}
 
-      {showActions && adminActions && (onReassign || onVoid) && (
+      {showActions && adminActions && (onReassign || onDelete) && (
         <div className="flex flex-wrap gap-2 pt-1">
           {onReassign && (
             <button
@@ -131,13 +131,13 @@ export default function CreditNoteAllocDetail({
               Reasignar facturas
             </button>
           )}
-          {onVoid && (
+          {onDelete && (
             <button
               type="button"
               className="text-xs text-red-600 hover:underline"
-              onClick={onVoid}
+              onClick={onDelete}
             >
-              Anular nota de crédito
+              Eliminar nota de crédito
             </button>
           )}
         </div>

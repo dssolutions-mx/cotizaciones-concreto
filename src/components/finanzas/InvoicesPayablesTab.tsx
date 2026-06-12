@@ -167,17 +167,17 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
     } catch { /* non-fatal */ }
   }, [])
 
-  const handleVoidCreditNoteFromInvoice = async (cnId: string, invoiceId: string) => {
-    const reason = window.prompt('Motivo de anulación (opcional):')
-    if (reason === null) return
-    const qs = reason.trim() ? `?reason=${encodeURIComponent(reason.trim())}` : ''
-    const res = await fetch(`/api/ap/credit-notes/${cnId}${qs}`, { method: 'DELETE' })
+  const handleDeleteCreditNoteFromInvoice = async (cnId: string, invoiceId: string, label: string) => {
+    if (!window.confirm(
+      `¿Eliminar por completo la nota de crédito ${label}?\n\nSe revertirán saldos y precios de entrada.`,
+    )) return
+    const res = await fetch(`/api/ap/credit-notes/${cnId}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json()
-      toast.error(data.error ?? 'No se pudo anular')
+      toast.error(data.error ?? 'No se pudo eliminar')
       return
     }
-    toast.success('Nota de crédito anulada')
+    toast.success('Nota de crédito eliminada')
     setCreditNoteAllocs((prev) => { const next = { ...prev }; delete next[invoiceId]; return next })
     setReloadKey((k) => k + 1)
   }
@@ -685,7 +685,8 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
                                       <div className="space-y-3">
                                         {allocs.map((alloc) => {
                                           const cn = alloc.credit_note
-                                          if (!cn || cn.status === 'void') return null
+                                          if (!cn) return null
+                                          const cnLabel = cn.credit_number ?? cn.id.slice(0, 8)
                                           return (
                                             <div key={alloc.id} className="space-y-1">
                                               <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600 px-1">
@@ -719,7 +720,11 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
                                                     setEditCnFromInvoice(data.credit_note)
                                                   })()
                                                 }}
-                                                onVoid={() => void handleVoidCreditNoteFromInvoice(cn.id, inv.id)}
+                                                onDelete={() => void handleDeleteCreditNoteFromInvoice(
+                                                  cn.id,
+                                                  inv.id,
+                                                  cnLabel,
+                                                )}
                                               />
                                             </div>
                                           )

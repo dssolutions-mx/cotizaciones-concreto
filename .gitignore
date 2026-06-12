@@ -89,6 +89,7 @@ next-env.d.ts
 !supabase/migrations/20260519120000_informe_iso_7_8_schema.sql
 !supabase/migrations/20260520022636_list_price_insights_approved_analytics.sql
 !supabase/migrations/20260610120000_material_entries_entry_number_index.sql
+!supabase/migrations/20260612130000_purge_void_credit_notes.sql
 *.dump
 *backup*
 

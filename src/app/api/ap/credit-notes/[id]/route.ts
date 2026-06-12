@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerSupabaseClient } from '@/lib/supabase/server'
-import { voidCreditNote, updateCreditNoteAllocations } from '@/lib/ap/voidCreditNote'
+import { deleteCreditNote, updateCreditNoteAllocations } from '@/lib/ap/voidCreditNote'
 import type { CreditNoteInvoiceAllocationInput } from '@/lib/ap/creditNoteAllocationTypes'
 
 const ALLOWED_ROLES = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER']
@@ -96,10 +96,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
     }
 
-    const { searchParams } = new URL(request.url)
-    const reason = searchParams.get('reason')
-
-    const result = await voidCreditNote(supabase, id, reason)
+    const result = await deleteCreditNote(supabase, id)
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: result.status })
     }

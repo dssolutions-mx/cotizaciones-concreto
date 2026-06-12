@@ -54,7 +54,11 @@ export async function GET(request: NextRequest) {
 
     if (supplier_group_id) query = query.eq('supplier_group_id', supplier_group_id)
     if (plant_id)          query = query.eq('plant_id', plant_id)
-    if (status)            query = query.eq('status', status)
+    if (status) {
+      query = query.eq('status', status)
+    } else {
+      query = query.neq('status', 'void')
+    }
 
     const { data, error } = await query
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
