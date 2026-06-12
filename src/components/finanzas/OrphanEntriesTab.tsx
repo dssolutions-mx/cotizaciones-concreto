@@ -12,7 +12,7 @@ import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { ChevronDown, ChevronRight, AlertTriangle, FileText, Package, Truck, X, Calendar } from 'lucide-react'
 import { usePlantContext } from '@/contexts/PlantContext'
-import CreateSupplierInvoiceDrawer, { type OrphanEntry } from './CreateSupplierInvoiceDrawer'
+import CreateSupplierInvoiceDrawer, { type OrphanEntry, type OrphanInvoiceLineScope } from './CreateSupplierInvoiceDrawer'
 import BulkCfdiInvoiceDialog from './BulkCfdiInvoiceDialog'
 import { cn } from '@/lib/utils'
 import { fetchAllOrphanEntries } from '@/lib/ap/fetchOrphanEntries'
@@ -140,8 +140,10 @@ function OrphanSelectionBasket({
   fleetCount,
   materialValid,
   fleetValid,
+  combinedValid,
   onInvoiceMaterial,
   onInvoiceFleet,
+  onInvoiceCombined,
   onClearMaterial,
   onClearFleet,
   onClearAll,
@@ -150,8 +152,10 @@ function OrphanSelectionBasket({
   fleetCount: number
   materialValid: boolean
   fleetValid: boolean
+  combinedValid: boolean
   onInvoiceMaterial: () => void
   onInvoiceFleet: () => void
+  onInvoiceCombined: () => void
   onClearMaterial: () => void
   onClearFleet: () => void
   onClearAll: () => void
@@ -210,12 +214,24 @@ function OrphanSelectionBasket({
             </Button>
           </div>
         )}
+        {materialCount > 0 && fleetCount > 0 && (
+          <Button
+            size="sm"
+            className="h-7 text-xs bg-violet-700 hover:bg-violet-800 text-white gap-1"
+            disabled={!combinedValid}
+            onClick={onInvoiceCombined}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            1 factura (material + flete)
+          </Button>
+        )}
         <Button size="sm" variant="ghost" className="h-7 text-xs text-stone-500 ml-auto" onClick={onClearAll}>
           Limpiar todo
         </Button>
       </div>
       <p className="text-[10px] text-violet-700/80 mt-1">
         La selección se conserva al cambiar de pestaña o recargar la página.
+        {materialCount > 0 && fleetCount > 0 && ' Usa «1 factura (material + flete)» para facturar ambas selecciones juntas.'}
       </p>
     </div>
   )
@@ -638,6 +654,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set())
   const [materialDrawerOpen, setMaterialDrawerOpen] = useState(false)
   const [materialDrawerEntries, setMaterialDrawerEntries] = useState<OrphanEntry[]>([])
+  const [materialLineScope, setMaterialLineScope] = useState<OrphanInvoiceLineScope | undefined>()
   const [fleetDrawerOpen, setFleetDrawerOpen] = useState(false)
   const [fleetDrawerEntries, setFleetDrawerEntries] = useState<OrphanEntry[]>([])
   const [orphanFleetDrawerOpen, setOrphanFleetDrawerOpen] = useState(false)
@@ -881,7 +898,21 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
 
   const openMaterialDrawerWith = (ids: string[]) => {
     const toInvoice = entries.filter(e => ids.includes(e.id))
+    setMaterialLineScope(undefined)
     setMaterialDrawerEntries(toInvoice)
+    setMaterialDrawerOpen(true)
+  }
+
+  const openCombinedDrawer = () => {
+    const matEntries = entries.filter(e => materialSelected.has(e.id))
+    const fltEntries = fleetEntriesCache.filter(e => fleetSelected.has(e.id))
+    if (matEntries.length === 0 || fltEntries.length === 0) return
+    const fleetOnlyEntries = fltEntries.filter(e => !materialSelected.has(e.id))
+    setMaterialLineScope({
+      materialEntryIds: matEntries.map(e => e.id),
+      fleetEntryIds: fltEntries.map(e => e.id),
+    })
+    setMaterialDrawerEntries([...matEntries, ...fleetOnlyEntries])
     setMaterialDrawerOpen(true)
   }
 
@@ -916,7 +947,13 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   }
 
   const handleMaterialDrawerSuccess = () => {
-    removeInvoicedMaterialIds(materialDrawerEntries)
+    if (materialLineScope) {
+      removeInvoicedMaterialIds(entries.filter(e => materialLineScope.materialEntryIds.includes(e.id)))
+      removeInvoicedFleetIds(fleetEntriesCache.filter(e => materialLineScope.fleetEntryIds.includes(e.id)))
+      setMaterialLineScope(undefined)
+    } else {
+      removeInvoicedMaterialIds(materialDrawerEntries)
+    }
     setMaterialDrawerOpen(false)
     setReloadKey(k => k + 1)
   }
@@ -940,6 +977,12 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const fleetSelectionValid =
     new Set(fleetSelectedEntries.map(e => e.fleet_supplier_id ?? '__sin_proveedor__')).size <= 1 &&
     new Set(fleetSelectedEntries.map(e => e.plant_id)).size <= 1
+  const combinedSelectionValid =
+    materialSelected.size > 0 &&
+    fleetSelected.size > 0 &&
+    materialSelectionValid &&
+    fleetSelectionValid &&
+    new Set([...materialSelectedEntries, ...fleetSelectedEntries].map(e => e.plant_id)).size <= 1
 
   const invoiceMaterialFromBasket = () => {
     const source = entries.length > 0 ? entries : []
@@ -953,6 +996,11 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
     const toInvoice = source.filter(e => fleetSelected.has(e.id))
     if (toInvoice.length === 0) return
     openFleetDrawerWith(toInvoice)
+  }
+
+  const invoiceCombinedFromBasket = () => {
+    if (!combinedSelectionValid) return
+    openCombinedDrawer()
   }
 
   const selectedPlants = new Set(materialSelectedEntries.map(e => e.plant_id))
@@ -974,8 +1022,10 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         fleetCount={fleetSelected.size}
         materialValid={materialSelectionValid}
         fleetValid={fleetSelectionValid}
+        combinedValid={combinedSelectionValid}
         onInvoiceMaterial={invoiceMaterialFromBasket}
         onInvoiceFleet={invoiceFleetFromBasket}
+        onInvoiceCombined={invoiceCombinedFromBasket}
         onClearMaterial={() => setMaterialSelected(new Set())}
         onClearFleet={() => setFleetSelected(new Set())}
         onClearAll={() => {
@@ -1354,8 +1404,12 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
 
       <CreateSupplierInvoiceDrawer
         open={materialDrawerOpen}
-        onOpenChange={setMaterialDrawerOpen}
+        onOpenChange={(open) => {
+          setMaterialDrawerOpen(open)
+          if (!open) setMaterialLineScope(undefined)
+        }}
         entries={materialDrawerEntries}
+        lineScope={materialLineScope}
         plantId={materialDrawerEntries[0]?.plant_id}
         onSuccess={handleMaterialDrawerSuccess}
       />

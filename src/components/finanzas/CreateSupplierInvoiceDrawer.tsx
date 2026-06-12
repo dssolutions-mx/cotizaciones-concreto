@@ -113,11 +113,35 @@ type SupplierGroup = {
   plant_supplier: { id: string; default_vat_rate: number | null; default_payment_terms_days: number | null } | null
 }
 
+/** When set, material and fleet lines are built from disjoint entry sets (cross-tab combined invoice). */
+export type OrphanInvoiceLineScope = {
+  materialEntryIds: string[]
+  fleetEntryIds: string[]
+}
+
+function entriesForLineScope(
+  entries: OrphanEntry[] | undefined,
+  lineScope: OrphanInvoiceLineScope | undefined,
+): { materialSource: OrphanEntry[]; fleetSource: OrphanEntry[] } {
+  const all = entries ?? []
+  if (!lineScope) {
+    return { materialSource: all, fleetSource: all }
+  }
+  const materialIds = new Set(lineScope.materialEntryIds)
+  const fleetIds = new Set(lineScope.fleetEntryIds)
+  return {
+    materialSource: all.filter(e => materialIds.has(e.id)),
+    fleetSource: all.filter(e => fleetIds.has(e.id)),
+  }
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** Pre-selected orphan entries to bill — undefined/empty = historical mode (manual lines) */
   entries?: OrphanEntry[]
+  /** Build material/fleet lines from separate entry sets (material tab + fleet tab selection). */
+  lineScope?: OrphanInvoiceLineScope
   plantId?: string
   /** When set, shows a "N remaining" badge indicating uno-a-uno queue progress */
   queueInfo?: { remaining: number }
@@ -202,6 +226,7 @@ export default function CreateSupplierInvoiceDrawer({
   open,
   onOpenChange,
   entries,
+  lineScope,
   plantId,
   queueInfo,
   fleetOnly = false,
@@ -209,8 +234,10 @@ export default function CreateSupplierInvoiceDrawer({
   onSuccess,
 }: Props) {
   const hasEntries = Boolean(entries && entries.length > 0)
+  const isCombinedScope = Boolean(lineScope)
   const isFullManual = !hasEntries && !fleetOnly && !orphanFleetOnly
   const isOrphanFleet = orphanFleetOnly || (fleetOnly && !hasEntries)
+  const { materialSource, fleetSource } = entriesForLineScope(entries, lineScope)
 
   // ── supplier group ─────────────────────────────────────────────────────────
   const [groups, setGroups] = useState<SupplierGroup[]>([])
@@ -224,7 +251,7 @@ export default function CreateSupplierInvoiceDrawer({
   const [includeFleetInThisInvoice, setIncludeFleetInThisInvoice] = useState(false)
 
   // Derived supplier info from entries (non-historical)
-  const firstSupplier = entries?.[0]?.supplier ?? null
+  const firstSupplier = (lineScope ? materialSource[0] : entries?.[0])?.supplier ?? null
   const supplierHasGroup = !!firstSupplier?.group_id
 
   // ── invoice header ─────────────────────────────────────────────────────────
@@ -359,8 +386,8 @@ export default function CreateSupplierInvoiceDrawer({
     }
 
     // Non-historical: build aggregated lines from entries
-    const builtMaterialLines = buildMaterialLines(entries ?? [])
-    const builtFleetLines = buildFleetLines(entries ?? [])
+    const builtMaterialLines = buildMaterialLines(materialSource)
+    const builtFleetLines = buildFleetLines(fleetSource)
     setMaterialLines(builtMaterialLines)
     setFleetLines(builtFleetLines)
 
@@ -391,24 +418,32 @@ export default function CreateSupplierInvoiceDrawer({
       return
     }
 
-    // Detect whether all entries share the same fleet supplier as the material supplier.
-    // Two checks, because some suppliers have no group_id assigned yet:
-    //  A) Same supplier_groups record (group_id match) — cross-plant canonical identity
-    //  B) Same plant-scoped supplier row (supplier_id === fleet_supplier_id) — e.g. MAPEI with no group
+    // Detect whether material and fleet share the same supplier (can merge into one invoice).
     const matGroupId = firstSupplier?.group_id ?? null
-    const allEnts = entries ?? []
-    const sameByGroupId = !!matGroupId && allEnts.length > 0 &&
-      allEnts.every(e => !!e.fleet_supplier?.group_id && e.fleet_supplier.group_id === matGroupId)
-    const sameByRow = allEnts.length > 0 &&
-      allEnts.every(e => !!e.fleet_supplier_id && e.fleet_supplier_id === e.supplier_id)
+    const fleetEnts = lineScope ? fleetSource : (entries ?? [])
+    const sameByGroupId = !!matGroupId && fleetEnts.length > 0 &&
+      fleetEnts.every(e => !!e.fleet_supplier?.group_id && e.fleet_supplier.group_id === matGroupId)
+    const sameByRow = lineScope
+      ? materialSource.length > 0 && fleetEnts.length > 0 &&
+        materialSource.every(e => e.supplier_id === materialSource[0].supplier_id) &&
+        fleetEnts.every(e => !!e.fleet_supplier_id && e.fleet_supplier_id === materialSource[0].supplier_id)
+      : fleetEnts.length > 0 &&
+        fleetEnts.every(e => !!e.fleet_supplier_id && e.fleet_supplier_id === e.supplier_id)
     const isSameSupplier = sameByGroupId || sameByRow
-    // The group_id to use for the invoice — prefer group if set, fall back to first fleet supplier's group
-    const resolvedFleetGroupId = matGroupId ?? null
+    const resolvedFleetGroupId =
+      matGroupId ??
+      fleetEnts[0]?.fleet_supplier?.group_id ??
+      null
 
-    if (isSameSupplier && builtFleetLines.length > 0) {
-      // Same company covers both material and transport — auto-include fleet in this invoice
+    if (lineScope && builtFleetLines.length > 0) {
       setIncludeFleetInThisInvoice(true)
       setFleetGroupId(resolvedFleetGroupId ?? '')
+    } else if (isSameSupplier && builtFleetLines.length > 0) {
+      setIncludeFleetInThisInvoice(true)
+      setFleetGroupId(resolvedFleetGroupId ?? '')
+    } else if (builtFleetLines.length > 0) {
+      setIncludeFleetInThisInvoice(false)
+      setFleetGroupId(fleetEnts[0]?.fleet_supplier?.group_id ?? '')
     } else {
       setIncludeFleetInThisInvoice(false)
       setFleetGroupId('')
@@ -422,15 +457,28 @@ export default function CreateSupplierInvoiceDrawer({
     setVatRate(String(firstSupplier?.default_vat_rate ?? DEFAULT_VAT))
 
     // Pre-fill due date from entry if available
-    const dueFromEntry = entries?.[0]?.ap_due_date_material
+    const headerEntry = lineScope ? materialSource[0] : entries?.[0]
+    const dueFromEntry = headerEntry?.ap_due_date_material
     if (dueFromEntry) setDueDate(dueFromEntry)
     else setDueDate(format(addDays(new Date(), 30), 'yyyy-MM-dd'))
 
     // Pre-fill invoice number
-    setInvoiceNumber(entries?.[0]?.supplier_invoice ?? '')
+    setInvoiceNumber(headerEntry?.supplier_invoice ?? '')
     setInvoiceDate(format(new Date(), 'yyyy-MM-dd'))
+
+    if (lineScope && builtFleetLines.length > 0) {
+      setRetentionRows([{
+        key: crypto.randomUUID(),
+        impuesto_sat: '001',
+        label: 'ISR autotransporte 1.25%',
+        base_amount: null,
+        rate: 0.0125,
+        amount: 0,
+        sort_order: 0,
+      }])
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, entries, isFullManual, isOrphanFleet, fleetOnly])
+  }, [open, entries, lineScope, isFullManual, isOrphanFleet, fleetOnly])
 
   // Auto-update VAT + due date when group changes (historical/picker mode)
   useEffect(() => {
@@ -501,6 +549,16 @@ export default function CreateSupplierInvoiceDrawer({
   //  A) Same supplier_groups.id (cross-plant)
   //  B) Same plant-scoped supplier row (supplier_id === fleet_supplier_id) — covers suppliers without a group
   const sameFleetSupplier = hasEntries && !fleetOnly && !isOrphanFleet && (() => {
+    if (lineScope) {
+      if (materialSource.length === 0 || fleetSource.length === 0) return false
+      const matGroupId = materialSource[0]?.supplier?.group_id ?? null
+      const byGroup = !!matGroupId &&
+        fleetSource.every(e => e.fleet_supplier?.group_id === matGroupId)
+      const byRow =
+        materialSource.every(e => e.supplier_id === materialSource[0].supplier_id) &&
+        fleetSource.every(e => !!e.fleet_supplier_id && e.fleet_supplier_id === materialSource[0].supplier_id)
+      return byGroup || byRow
+    }
     const ents = entries ?? []
     if (ents.length === 0) return false
     const byGroup = !!groupId && !!fleetGroupId && groupId === fleetGroupId
@@ -508,12 +566,18 @@ export default function CreateSupplierInvoiceDrawer({
     return byGroup || byRow
   })()
 
+  const combinesFleetIntoMaterialInvoice =
+    !fleetOnly &&
+    !isOrphanFleet &&
+    includeFleetInThisInvoice &&
+    fleetLines.length > 0 &&
+    (lineScope ? true : sameFleetSupplier)
+
   // In fleet-only mode, base = fleet lines.
-  // When merging same-supplier fleet into the material invoice, base = material + fleet combined.
-  // Otherwise base = material lines only.
+  // When merging fleet into the material invoice, base = material + fleet combined.
   const effectiveSubtotal = isOrphanFleet || fleetOnly
     ? fleetSubtotal
-    : (sameFleetSupplier && includeFleetInThisInvoice && fleetLines.length > 0)
+    : combinesFleetIntoMaterialInvoice
       ? subtotal + fleetSubtotal
       : subtotal
   const vat = parseFloat(vatRate) || 0
@@ -897,7 +961,8 @@ export default function CreateSupplierInvoiceDrawer({
       // ── Build items: merge fleet into material when same supplier group ────
       // Same supplier → one invoice with both material and fleet lines.
       // Different supplier → one material invoice now, fleet invoice separately below.
-      const mergeFleet = sameFleetSupplier && includeFleetInThisInvoice && fleetLines.length > 0
+      // Cross-tab combined selection always posts one invoice with both line types.
+      const mergeFleet = combinesFleetIntoMaterialInvoice
       const combinedItems = mergeFleet ? [...apiItems, ...buildFleetApiItems()] : apiItems
 
       // ── Invoice 1: material supplier (may include fleet when same supplier) ─
@@ -941,7 +1006,7 @@ export default function CreateSupplierInvoiceDrawer({
       }
 
       // ── Invoice 2: fleet supplier — only when DIFFERENT from material supplier ─
-      if (!mergeFleet && includeFleetInThisInvoice && fleetLines.length > 0 && fleetGroupId) {
+      if (!mergeFleet && includeFleetInThisInvoice && fleetLines.length > 0 && fleetGroupId && !lineScope) {
         const fleetItems = buildFleetApiItems()
         if (fleetItems.length > 0) {
           const fleetSubtotalAmt = fleetLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0)
@@ -1154,7 +1219,9 @@ export default function CreateSupplierInvoiceDrawer({
                 ? `Factura de flete (${entries?.length ?? 0} entrada${(entries?.length ?? 0) !== 1 ? 's' : ''})`
                 : isFullManual
                   ? 'Nueva factura histórica'
-                  : `Crear factura (${entries?.length ?? 0} recepcion${(entries?.length ?? 0) !== 1 ? 'es' : ''})`}
+                  : isCombinedScope
+                    ? `Factura material + flete (${lineScope!.materialEntryIds.length} + ${lineScope!.fleetEntryIds.length})`
+                    : `Crear factura (${entries?.length ?? 0} recepcion${(entries?.length ?? 0) !== 1 ? 'es' : ''})`}
             {queueInfo && queueInfo.remaining > 0 && (
               <span className="ml-1 px-2 py-0.5 bg-sky-100 text-sky-700 rounded-full text-xs font-medium">
                 {queueInfo.remaining} más después
@@ -1168,6 +1235,8 @@ export default function CreateSupplierInvoiceDrawer({
                 ? 'Registra la factura del proveedor de transporte/flete para las entradas seleccionadas.'
                 : isFullManual
                   ? 'Registra una factura anterior al sistema sin recepciones vinculadas.'
+                : isCombinedScope
+                  ? 'Una sola factura con líneas de material y flete de las recepciones seleccionadas en ambas pestañas.'
                 : queueInfo && queueInfo.remaining > 0
                   ? 'Completa esta factura y se abrirá automáticamente la siguiente recepción.'
                   : 'La factura agrupa las recepciones seleccionadas en una sola cuenta por pagar.'}
