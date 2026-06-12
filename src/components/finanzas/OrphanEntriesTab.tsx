@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -16,6 +16,13 @@ import CreateSupplierInvoiceDrawer, { type OrphanEntry } from './CreateSupplierI
 import BulkCfdiInvoiceDialog from './BulkCfdiInvoiceDialog'
 import { cn } from '@/lib/utils'
 import { fetchAllOrphanEntries } from '@/lib/ap/fetchOrphanEntries'
+import {
+  loadOrphanInvoiceSelection,
+  orphanInvoiceScopeKey,
+  reconcileSelectedIds,
+  saveOrphanInvoiceSelection,
+  type OrphanInvoiceActiveTab,
+} from '@/lib/ap/orphanInvoiceSelectionPersistence'
 import {
   orphanEntryLoggedRemisionLabel,
   orphanEntryLoggedRemisionPrefix,
@@ -128,6 +135,92 @@ function OrphanReceptionDateFilter({
   )
 }
 
+function OrphanSelectionBasket({
+  materialCount,
+  fleetCount,
+  materialValid,
+  fleetValid,
+  onInvoiceMaterial,
+  onInvoiceFleet,
+  onClearMaterial,
+  onClearFleet,
+  onClearAll,
+}: {
+  materialCount: number
+  fleetCount: number
+  materialValid: boolean
+  fleetValid: boolean
+  onInvoiceMaterial: () => void
+  onInvoiceFleet: () => void
+  onClearMaterial: () => void
+  onClearFleet: () => void
+  onClearAll: () => void
+}) {
+  if (materialCount === 0 && fleetCount === 0) return null
+
+  return (
+    <div className="sticky top-0 z-10 rounded-lg border border-violet-200 bg-violet-50/95 backdrop-blur px-3 py-2.5 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-violet-900">Selección guardada</span>
+        {materialCount > 0 && (
+          <div className="flex items-center gap-1.5 rounded-md bg-white/80 border border-sky-200 px-2 py-1">
+            <Package className="h-3.5 w-3.5 text-sky-600" />
+            <span className="text-xs text-stone-700">
+              {materialCount} material{materialCount !== 1 ? 'es' : ''}
+            </span>
+            {!materialValid && (
+              <span className="text-[10px] text-red-600 flex items-center gap-0.5">
+                <AlertTriangle className="h-3 w-3" /> plantas mixtas
+              </span>
+            )}
+            <Button
+              size="sm"
+              className="h-6 text-[10px] bg-sky-700 hover:bg-sky-800 text-white px-2"
+              disabled={!materialValid}
+              onClick={onInvoiceMaterial}
+            >
+              Facturar
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-stone-400" onClick={onClearMaterial} aria-label="Quitar material">
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+        {fleetCount > 0 && (
+          <div className="flex items-center gap-1.5 rounded-md bg-white/80 border border-amber-200 px-2 py-1">
+            <Truck className="h-3.5 w-3.5 text-amber-600" />
+            <span className="text-xs text-stone-700">
+              {fleetCount} flete{fleetCount !== 1 ? 's' : ''}
+            </span>
+            {!fleetValid && (
+              <span className="text-[10px] text-red-600 flex items-center gap-0.5">
+                <AlertTriangle className="h-3 w-3" /> proveedor/planta mixtos
+              </span>
+            )}
+            <Button
+              size="sm"
+              className="h-6 text-[10px] bg-amber-700 hover:bg-amber-800 text-white px-2"
+              disabled={!fleetValid}
+              onClick={onInvoiceFleet}
+            >
+              Facturar
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-stone-400" onClick={onClearFleet} aria-label="Quitar fletes">
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+        )}
+        <Button size="sm" variant="ghost" className="h-7 text-xs text-stone-500 ml-auto" onClick={onClearAll}>
+          Limpiar todo
+        </Button>
+      </div>
+      <p className="text-[10px] text-violet-700/80 mt-1">
+        La selección se conserva al cambiar de pestaña o recargar la página.
+      </p>
+    </div>
+  )
+}
+
 interface Props {
   workspacePlantId?: string
   hidePlantFilter?: boolean
@@ -141,6 +234,14 @@ function FleetPendingSection({
   onReload,
   dateFrom = '',
   dateTo = '',
+  selectedIds,
+  onSelectedIdsChange,
+  materialSupplierFilter,
+  onMaterialSupplierFilterChange,
+  materialFilter,
+  onMaterialFilterChange,
+  onInvoiceFleet,
+  onOpenOrphanFleet,
 }: {
   workspacePlantId?: string
   hidePlantFilter?: boolean
@@ -148,6 +249,14 @@ function FleetPendingSection({
   onReload: () => void
   dateFrom?: string
   dateTo?: string
+  selectedIds: Set<string>
+  onSelectedIdsChange: (next: Set<string> | ((prev: Set<string>) => Set<string>)) => void
+  materialSupplierFilter: string
+  onMaterialSupplierFilterChange: (value: string) => void
+  materialFilter: string
+  onMaterialFilterChange: (value: string) => void
+  onInvoiceFleet: (entries: OrphanEntry[]) => void
+  onOpenOrphanFleet: () => void
 }) {
   const { availablePlants } = usePlantContext()
   const [localPlantFilter, setLocalPlantFilter] = useState('')
@@ -155,13 +264,7 @@ function FleetPendingSection({
   const [entries, setEntries] = useState<OrphanEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadProgress, setLoadProgress] = useState<{ loaded: number; total: number } | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set())
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [orphanFleetDrawerOpen, setOrphanFleetDrawerOpen] = useState(false)
-  const [drawerEntries, setDrawerEntries] = useState<OrphanEntry[]>([])
-  const [materialSupplierFilter, setMaterialSupplierFilter] = useState('')
-  const [materialFilter, setMaterialFilter] = useState('')
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
@@ -202,7 +305,6 @@ function FleetPendingSection({
       setLoading(true)
       setLoadProgress(null)
       setEntries([])
-      setSelected(new Set())
       try {
         const { entries: list } = await fetchAllOrphanEntries(
           {
@@ -222,6 +324,9 @@ function FleetPendingSection({
         )
         if (cancelled) return
         setEntries(list)
+        onSelectedIdsChange(prev =>
+          reconcileSelectedIds(prev, new Set(list.map(e => e.id))),
+        )
         const keys = new Set<string>(list.map(e => e.fleet_supplier?.group_id ?? e.fleet_supplier_id ?? '__sin_proveedor__'))
         setExpandedSuppliers(keys)
       } catch (err) {
@@ -240,9 +345,11 @@ function FleetPendingSection({
       cancelled = true
       controller.abort()
     }
-  }, [plantFilter, reloadKey, dateFrom, dateTo])
+  }, [plantFilter, reloadKey, dateFrom, dateTo, onSelectedIdsChange])
 
-  // Group by fleet_supplier.group_id — the supplier_groups entity is cross-plant,
+  const updateSelected = useCallback((updater: (prev: Set<string>) => Set<string>) => {
+    onSelectedIdsChange(prev => updater(prev))
+  }, [onSelectedIdsChange])
   // so "SAFE" in plant A and "SAFE" in plant B (same group_id) collapse into one card.
   // fleet_supplier_id is plant-scoped and would produce duplicates.
   const grouped = useMemo(() => {
@@ -255,15 +362,15 @@ function FleetPendingSection({
     return map
   }, [filteredEntries])
 
-  const toggleEntry = (id: string) => setSelected(prev => {
+  const toggleEntry = (id: string) => updateSelected(prev => {
     const next = new Set(prev)
     if (next.has(id)) { next.delete(id) } else { next.add(id) }
     return next
   })
 
   const toggleSupplier = (ids: string[]) => {
-    const allSel = ids.every(id => selected.has(id))
-    setSelected(prev => {
+    updateSelected(prev => {
+      const allSel = ids.every(id => prev.has(id))
       const next = new Set(prev)
       if (allSel) ids.forEach(id => next.delete(id))
       else ids.forEach(id => next.add(id))
@@ -272,11 +379,10 @@ function FleetPendingSection({
   }
 
   const openDrawer = (ids: string[]) => {
-    setDrawerEntries(entries.filter(e => ids.includes(e.id)))
-    setDrawerOpen(true)
+    onInvoiceFleet(entries.filter(e => ids.includes(e.id)))
   }
 
-  const selectedEntries = entries.filter(e => selected.has(e.id))
+  const selectedEntries = entries.filter(e => selectedIds.has(e.id))
   const selectedFleetSuppliers = new Set(selectedEntries.map(e => e.fleet_supplier_id ?? '__sin_proveedor__'))
   // Only allow invoicing entries from the same fleet supplier at once
   const selectionValid = selectedFleetSuppliers.size <= 1 && new Set(selectedEntries.map(e => e.plant_id)).size <= 1
@@ -313,14 +419,14 @@ function FleetPendingSection({
           size="sm"
           variant="outline"
           className="h-8 text-xs gap-1 border-amber-300 text-amber-800 hover:bg-amber-50"
-          onClick={() => setOrphanFleetDrawerOpen(true)}
+          onClick={onOpenOrphanFleet}
         >
           <Truck className="h-3.5 w-3.5" />
           Flete sin entrada
         </Button>
 
         {materialSupplierOptions.length > 1 && (
-          <Select value={materialSupplierFilter || '__all__'} onValueChange={v => setMaterialSupplierFilter(v === '__all__' ? '' : v)}>
+          <Select value={materialSupplierFilter || '__all__'} onValueChange={v => onMaterialSupplierFilterChange(v === '__all__' ? '' : v)}>
             <SelectTrigger className="w-[200px] bg-white border-stone-300">
               <SelectValue placeholder="Proveedores de material" />
             </SelectTrigger>
@@ -334,7 +440,7 @@ function FleetPendingSection({
         )}
 
         {materialOptions.length > 1 && (
-          <Select value={materialFilter || '__all__'} onValueChange={v => setMaterialFilter(v === '__all__' ? '' : v)}>
+          <Select value={materialFilter || '__all__'} onValueChange={v => onMaterialFilterChange(v === '__all__' ? '' : v)}>
             <SelectTrigger className="w-[200px] bg-white border-stone-300">
               <SelectValue placeholder="Todos los materiales" />
             </SelectTrigger>
@@ -354,8 +460,8 @@ function FleetPendingSection({
             variant="ghost"
             className="h-8 text-xs gap-1 text-stone-500"
             onClick={() => {
-              setMaterialSupplierFilter('')
-              setMaterialFilter('')
+              onMaterialSupplierFilterChange('')
+              onMaterialFilterChange('')
             }}
           >
             <X className="h-3.5 w-3.5" />
@@ -363,9 +469,9 @@ function FleetPendingSection({
           </Button>
         )}
 
-        {selected.size > 0 && (
+        {selectedIds.size > 0 && (
           <div className="flex items-center gap-2 ml-2 pl-2 border-l border-stone-200">
-            <span className="text-xs text-stone-600 font-medium">{selected.size} seleccionada{selected.size !== 1 ? 's' : ''}</span>
+            <span className="text-xs text-stone-600 font-medium">{selectedIds.size} seleccionada{selectedIds.size !== 1 ? 's' : ''}</span>
             {!selectionValid && (
               <span className="text-xs text-red-600 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5" /> Proveedor o planta mixtos
@@ -375,12 +481,12 @@ function FleetPendingSection({
               size="sm"
               className="h-7 text-xs bg-amber-700 hover:bg-amber-800 text-white gap-1"
               disabled={!selectionValid}
-              onClick={() => openDrawer([...selected])}
+              onClick={() => openDrawer([...selectedIds])}
             >
               <Truck className="h-3.5 w-3.5" />
               1 factura de flete
             </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelected(new Set())}>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => onSelectedIdsChange(new Set())}>
               Limpiar
             </Button>
           </div>
@@ -419,8 +525,8 @@ function FleetPendingSection({
         <div className="space-y-3">
           {[...grouped.entries()].map(([supplierId, group]) => {
             const allIds = group.entries.map(e => e.id)
-            const allChecked = allIds.every(id => selected.has(id))
-            const someChecked = allIds.some(id => selected.has(id))
+            const allChecked = allIds.every(id => selectedIds.has(id))
+            const someChecked = allIds.some(id => selectedIds.has(id))
             const expanded = expandedSuppliers.has(supplierId)
             const totalFleet = group.entries.reduce((s, e) => s + Number(e.fleet_cost ?? 0), 0)
 
@@ -466,11 +572,11 @@ function FleetPendingSection({
                         key={entry.id}
                         className={cn(
                           'flex items-center gap-3 px-8 py-2 text-xs hover:bg-amber-50/50 transition-colors',
-                          selected.has(entry.id) && 'bg-amber-50'
+                          selectedIds.has(entry.id) && 'bg-amber-50'
                         )}
                       >
                         <Checkbox
-                          checked={selected.has(entry.id)}
+                          checked={selectedIds.has(entry.id)}
                           onCheckedChange={() => toggleEntry(entry.id)}
                         />
                         <span className="font-mono text-stone-700">{entry.entry_number}</span>
@@ -502,30 +608,6 @@ function FleetPendingSection({
           })}
         </div>
       )}
-
-      <CreateSupplierInvoiceDrawer
-        open={drawerOpen}
-        onOpenChange={(open) => { if (!open) setDrawerOpen(false) }}
-        entries={drawerEntries}
-        plantId={drawerEntries[0]?.plant_id}
-        fleetOnly
-        onSuccess={() => {
-          setDrawerOpen(false)
-          setSelected(new Set())
-          onReload()
-        }}
-      />
-      <CreateSupplierInvoiceDrawer
-        open={orphanFleetDrawerOpen}
-        onOpenChange={setOrphanFleetDrawerOpen}
-        plantId={plantFilter || undefined}
-        fleetOnly
-        orphanFleetOnly
-        onSuccess={() => {
-          setOrphanFleetDrawerOpen(false)
-          onReload()
-        }}
-      />
     </div>
   )
 }
@@ -533,24 +615,87 @@ function FleetPendingSection({
 // ── Main tab ──────────────────────────────────────────────────────────────────
 export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilter = false }: Props) {
   const { availablePlants } = usePlantContext()
-  const [activeTab, setActiveTab] = useState<'material' | 'fleet'>('material')
+  const scopeKey = useMemo(
+    () => orphanInvoiceScopeKey(workspacePlantId, hidePlantFilter),
+    [workspacePlantId, hidePlantFilter],
+  )
+  const [persistReady, setPersistReady] = useState(false)
+
+  const [activeTab, setActiveTab] = useState<OrphanInvoiceActiveTab>('material')
   const [localPlantFilter, setLocalPlantFilter] = useState('')
   const plantFilter = hidePlantFilter ? workspacePlantId : (localPlantFilter || workspacePlantId)
   const [supplierFilter, setSupplierFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
+  const [fleetMaterialSupplierFilter, setFleetMaterialSupplierFilter] = useState('')
+  const [fleetMaterialFilter, setFleetMaterialFilter] = useState('')
   const [entries, setEntries] = useState<OrphanEntry[]>([])
+  const [fleetEntriesCache, setFleetEntriesCache] = useState<OrphanEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [loadProgress, setLoadProgress] = useState<{ loaded: number; total: number } | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [materialSelected, setMaterialSelected] = useState<Set<string>>(() => new Set())
+  const [fleetSelected, setFleetSelected] = useState<Set<string>>(() => new Set())
   const [expandedSuppliers, setExpandedSuppliers] = useState<Set<string>>(new Set())
   const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set())
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [drawerEntries, setDrawerEntries] = useState<OrphanEntry[]>([])
+  const [materialDrawerOpen, setMaterialDrawerOpen] = useState(false)
+  const [materialDrawerEntries, setMaterialDrawerEntries] = useState<OrphanEntry[]>([])
+  const [fleetDrawerOpen, setFleetDrawerOpen] = useState(false)
+  const [fleetDrawerEntries, setFleetDrawerEntries] = useState<OrphanEntry[]>([])
+  const [orphanFleetDrawerOpen, setOrphanFleetDrawerOpen] = useState(false)
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false)
   const [bulkEntries, setBulkEntries] = useState<OrphanEntry[]>([])
   const [reloadKey, setReloadKey] = useState(0)
   const [receptionDateFrom, setReceptionDateFrom] = useState('')
   const [receptionDateTo, setReceptionDateTo] = useState('')
+
+  useEffect(() => {
+    setPersistReady(false)
+    const saved = loadOrphanInvoiceSelection(scopeKey)
+    if (saved) {
+      setActiveTab(saved.activeTab)
+      setLocalPlantFilter(saved.plantFilter && !hidePlantFilter ? saved.plantFilter : '')
+      setSupplierFilter(saved.supplierFilter)
+      setMaterialFilter(saved.materialFilter)
+      setFleetMaterialSupplierFilter(saved.fleetMaterialSupplierFilter)
+      setFleetMaterialFilter(saved.fleetMaterialFilter)
+      setReceptionDateFrom(saved.receptionDateFrom)
+      setReceptionDateTo(saved.receptionDateTo)
+      setMaterialSelected(new Set(saved.materialSelectedIds))
+      setFleetSelected(new Set(saved.fleetSelectedIds))
+    }
+    setPersistReady(true)
+  }, [scopeKey, hidePlantFilter])
+
+  useEffect(() => {
+    if (!persistReady) return
+    saveOrphanInvoiceSelection({
+      scopeKey,
+      activeTab,
+      materialSelectedIds: [...materialSelected],
+      fleetSelectedIds: [...fleetSelected],
+      plantFilter: hidePlantFilter ? workspacePlantId : localPlantFilter,
+      supplierFilter,
+      materialFilter,
+      fleetMaterialSupplierFilter,
+      fleetMaterialFilter,
+      receptionDateFrom,
+      receptionDateTo,
+    })
+  }, [
+    persistReady,
+    scopeKey,
+    activeTab,
+    materialSelected,
+    fleetSelected,
+    hidePlantFilter,
+    workspacePlantId,
+    localPlantFilter,
+    supplierFilter,
+    materialFilter,
+    fleetMaterialSupplierFilter,
+    fleetMaterialFilter,
+    receptionDateFrom,
+    receptionDateTo,
+  ])
 
   const clearReceptionDates = () => {
     setReceptionDateFrom('')
@@ -560,8 +705,10 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
   const plantMap = useMemo(() => new Map(availablePlants.map(p => [p.id, p.name])), [availablePlants])
 
+  const shouldLoadMaterial = activeTab === 'material' || materialSelected.size > 0
+
   useEffect(() => {
-    if (activeTab !== 'material') return
+    if (!shouldLoadMaterial) return
 
     const controller = new AbortController()
     let cancelled = false
@@ -569,8 +716,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
     async function load() {
       setLoading(true)
       setLoadProgress(null)
-      setEntries([])
-      setSelected(new Set())
+      if (activeTab === 'material') setEntries([])
       try {
         const { entries: list } = await fetchAllOrphanEntries(
           {
@@ -583,20 +729,25 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
             signal: controller.signal,
             onProgress: (loaded, total, batch) => {
               if (cancelled) return
-              setLoadProgress({ loaded, total })
-              setEntries(batch)
+              if (activeTab === 'material') {
+                setLoadProgress({ loaded, total })
+                setEntries(batch)
+              }
             },
           },
         )
         if (cancelled) return
         setEntries(list)
-        const groupKeys = new Set<string>(
-          list.map((e: OrphanEntry) => e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id),
-        )
-        setExpandedSuppliers(groupKeys)
+        setMaterialSelected(prev => reconcileSelectedIds(prev, new Set(list.map(e => e.id))))
+        if (activeTab === 'material') {
+          const groupKeys = new Set<string>(
+            list.map((e: OrphanEntry) => e.supplier?.group_id ?? e.supplier?.id ?? e.supplier_id),
+          )
+          setExpandedSuppliers(groupKeys)
+        }
       } catch (err) {
         if ((err as Error).name === 'AbortError') return
-        if (!cancelled) setEntries([])
+        if (!cancelled && activeTab === 'material') setEntries([])
       } finally {
         if (!cancelled) {
           setLoading(false)
@@ -610,7 +761,39 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
       cancelled = true
       controller.abort()
     }
-  }, [plantFilter, reloadKey, activeTab, receptionDateFrom, receptionDateTo])
+  }, [plantFilter, reloadKey, shouldLoadMaterial, activeTab, receptionDateFrom, receptionDateTo])
+
+  useEffect(() => {
+    if (activeTab !== 'fleet' && fleetSelected.size === 0) return
+
+    const controller = new AbortController()
+    let cancelled = false
+
+    async function loadFleetCache() {
+      try {
+        const { entries: list } = await fetchAllOrphanEntries(
+          {
+            mode: 'fleet',
+            plantId: plantFilter || undefined,
+            dateFrom: receptionDateFrom || undefined,
+            dateTo: receptionDateTo || undefined,
+          },
+          { signal: controller.signal },
+        )
+        if (cancelled) return
+        setFleetEntriesCache(list)
+        setFleetSelected(prev => reconcileSelectedIds(prev, new Set(list.map(e => e.id))))
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return
+      }
+    }
+
+    void loadFleetCache()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [plantFilter, reloadKey, activeTab, fleetSelected.size, receptionDateFrom, receptionDateTo])
 
   // Derive filter options from loaded entries — key by group_id so CEMEX plant1+plant2 = one option
   const supplierOptions = useMemo(() => {
@@ -678,7 +861,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   }, [filteredEntries])
 
   const toggleEntry = (id: string) => {
-    setSelected(prev => {
+    setMaterialSelected(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -687,8 +870,8 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
   }
 
   const toggleAll = (ids: string[]) => {
-    const allSelected = ids.every(id => selected.has(id))
-    setSelected(prev => {
+    const allSelected = ids.every(id => materialSelected.has(id))
+    setMaterialSelected(prev => {
       const next = new Set(prev)
       if (allSelected) ids.forEach(id => next.delete(id))
       else ids.forEach(id => next.add(id))
@@ -696,11 +879,16 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
     })
   }
 
-  const openDrawerWith = (ids: string[]) => {
+  const openMaterialDrawerWith = (ids: string[]) => {
     const toInvoice = entries.filter(e => ids.includes(e.id))
-    setDrawerEntries(toInvoice)
-    setDrawerOpen(true)
+    setMaterialDrawerEntries(toInvoice)
+    setMaterialDrawerOpen(true)
   }
+
+  const openFleetDrawerWith = useCallback((toInvoice: OrphanEntry[]) => {
+    setFleetDrawerEntries(toInvoice)
+    setFleetDrawerOpen(true)
+  }, [])
 
   const openBulkDialog = (ids: string[]) => {
     const toInvoice = entries.filter(e => ids.includes(e.id))
@@ -709,20 +897,65 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
     setBulkDialogOpen(true)
   }
 
-  const handleDrawerSuccess = () => {
-    setDrawerOpen(false)
+  const removeInvoicedMaterialIds = (invoicedEntries: OrphanEntry[]) => {
+    const invoicedIds = new Set(invoicedEntries.map(e => e.id))
+    setMaterialSelected(prev => {
+      const next = new Set(prev)
+      for (const id of invoicedIds) next.delete(id)
+      return next
+    })
+  }
+
+  const removeInvoicedFleetIds = (invoicedEntries: OrphanEntry[]) => {
+    const invoicedIds = new Set(invoicedEntries.map(e => e.id))
+    setFleetSelected(prev => {
+      const next = new Set(prev)
+      for (const id of invoicedIds) next.delete(id)
+      return next
+    })
+  }
+
+  const handleMaterialDrawerSuccess = () => {
+    removeInvoicedMaterialIds(materialDrawerEntries)
+    setMaterialDrawerOpen(false)
+    setReloadKey(k => k + 1)
+  }
+
+  const handleFleetDrawerSuccess = () => {
+    removeInvoicedFleetIds(fleetDrawerEntries)
+    setFleetDrawerOpen(false)
     setReloadKey(k => k + 1)
   }
 
   const handleBulkSuccess = () => {
     setBulkDialogOpen(false)
     setBulkEntries([])
-    setSelected(new Set())
+    setMaterialSelected(new Set())
     setReloadKey(k => k + 1)
   }
 
-  const selectedEntries = entries.filter(e => selected.has(e.id))
-  const selectedPlants = new Set(selectedEntries.map(e => e.plant_id))
+  const materialSelectedEntries = entries.filter(e => materialSelected.has(e.id))
+  const fleetSelectedEntries = fleetEntriesCache.filter(e => fleetSelected.has(e.id))
+  const materialSelectionValid = new Set(materialSelectedEntries.map(e => e.plant_id)).size <= 1
+  const fleetSelectionValid =
+    new Set(fleetSelectedEntries.map(e => e.fleet_supplier_id ?? '__sin_proveedor__')).size <= 1 &&
+    new Set(fleetSelectedEntries.map(e => e.plant_id)).size <= 1
+
+  const invoiceMaterialFromBasket = () => {
+    const source = entries.length > 0 ? entries : []
+    const toInvoice = source.filter(e => materialSelected.has(e.id))
+    if (toInvoice.length === 0) return
+    openMaterialDrawerWith(toInvoice.map(e => e.id))
+  }
+
+  const invoiceFleetFromBasket = () => {
+    const source = fleetEntriesCache.length > 0 ? fleetEntriesCache : entries
+    const toInvoice = source.filter(e => fleetSelected.has(e.id))
+    if (toInvoice.length === 0) return
+    openFleetDrawerWith(toInvoice)
+  }
+
+  const selectedPlants = new Set(materialSelectedEntries.map(e => e.plant_id))
   const selectionValid = selectedPlants.size <= 1
   const hasActiveFilter = !!supplierFilter || !!materialFilter || !!receptionDateFrom || !!receptionDateTo
 
@@ -734,6 +967,21 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         onDateFromChange={setReceptionDateFrom}
         onDateToChange={setReceptionDateTo}
         onClear={clearReceptionDates}
+      />
+
+      <OrphanSelectionBasket
+        materialCount={materialSelected.size}
+        fleetCount={fleetSelected.size}
+        materialValid={materialSelectionValid}
+        fleetValid={fleetSelectionValid}
+        onInvoiceMaterial={invoiceMaterialFromBasket}
+        onInvoiceFleet={invoiceFleetFromBasket}
+        onClearMaterial={() => setMaterialSelected(new Set())}
+        onClearFleet={() => setFleetSelected(new Set())}
+        onClearAll={() => {
+          setMaterialSelected(new Set())
+          setFleetSelected(new Set())
+        }}
       />
 
       {/* Sub-tab switcher: Material vs Fleet */}
@@ -749,7 +997,12 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         >
           <Package className="h-3.5 w-3.5" />
           Material
-          {entries.length > 0 && activeTab !== 'material' && (
+          {materialSelected.size > 0 && activeTab !== 'material' && (
+            <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+              {materialSelected.size} sel.
+            </span>
+          )}
+          {entries.length > 0 && activeTab !== 'material' && materialSelected.size === 0 && (
             <span className="ml-1 rounded-full bg-stone-200 px-1.5 py-0.5 text-[10px] font-semibold text-stone-600">
               {entries.length}
             </span>
@@ -771,6 +1024,11 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         >
           <Truck className="h-3.5 w-3.5" />
           Fletes pendientes
+          {fleetSelected.size > 0 && activeTab !== 'fleet' && (
+            <span className="ml-1 rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+              {fleetSelected.size} sel.
+            </span>
+          )}
         </button>
       </div>
 
@@ -782,6 +1040,14 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
           onReload={() => setReloadKey(k => k + 1)}
           dateFrom={receptionDateFrom}
           dateTo={receptionDateTo}
+          selectedIds={fleetSelected}
+          onSelectedIdsChange={setFleetSelected}
+          materialSupplierFilter={fleetMaterialSupplierFilter}
+          onMaterialSupplierFilterChange={setFleetMaterialSupplierFilter}
+          materialFilter={fleetMaterialFilter}
+          onMaterialFilterChange={setFleetMaterialFilter}
+          onInvoiceFleet={openFleetDrawerWith}
+          onOpenOrphanFleet={() => setOrphanFleetDrawerOpen(true)}
         />
       ) : (
       <>
@@ -843,9 +1109,9 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
         )}
 
         {/* Selection actions */}
-        {selected.size > 0 && (
+        {materialSelected.size > 0 && (
           <div className="flex flex-wrap items-center gap-2 ml-2 pl-2 border-l border-stone-200">
-            <span className="text-xs text-stone-600 font-medium">{selected.size} seleccionada{selected.size !== 1 ? 's' : ''}</span>
+            <span className="text-xs text-stone-600 font-medium">{materialSelected.size} seleccionada{materialSelected.size !== 1 ? 's' : ''}</span>
             {!selectionValid && (
               <span className="text-xs text-red-600 flex items-center gap-1">
                 <AlertTriangle className="h-3.5 w-3.5" /> Plantas mixtas
@@ -855,24 +1121,24 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
               size="sm"
               className="h-7 text-xs bg-sky-700 hover:bg-sky-800 text-white gap-1"
               disabled={!selectionValid}
-              onClick={() => openDrawerWith([...selected])}
+              onClick={() => openMaterialDrawerWith([...materialSelected])}
             >
               <FileText className="h-3.5 w-3.5" />
-              1 factura ({selected.size} recepcion{selected.size !== 1 ? 'es' : ''})
+              1 factura ({materialSelected.size} recepcion{materialSelected.size !== 1 ? 'es' : ''})
             </Button>
-            {selected.size > 1 && (
+            {materialSelected.size > 1 && (
               <Button
                 size="sm"
                 variant="outline"
                 className="h-7 text-xs gap-1 border-sky-300 text-sky-700 hover:bg-sky-50"
                 disabled={!selectionValid}
-                onClick={() => openBulkDialog([...selected])}
+                onClick={() => openBulkDialog([...materialSelected])}
               >
                 <FileText className="h-3.5 w-3.5" />
                 Facturar en lote (ZIP/XML)
               </Button>
             )}
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelected(new Set())}>
+            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setMaterialSelected(new Set())}>
               Limpiar
             </Button>
           </div>
@@ -909,8 +1175,8 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
           {[...grouped.entries()].map(([groupKey, grpData]) => {
             const allGroupIds = [...grpData.byPlant.values()]
               .flatMap(p => [...p.byMaterial.values()].flatMap(m => m.entries.map(e => e.id)))
-            const allChecked = allGroupIds.every(id => selected.has(id))
-            const someChecked = allGroupIds.some(id => selected.has(id))
+            const allChecked = allGroupIds.every(id => materialSelected.has(id))
+            const someChecked = allGroupIds.some(id => materialSelected.has(id))
             const expanded = expandedSuppliers.has(groupKey)
             const totalAmount = allGroupIds.reduce((s, id) => {
               const entry = entries.find(e => e.id === id)
@@ -953,7 +1219,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                       size="sm"
                       variant="outline"
                       className="h-6 text-xs gap-1 ml-2"
-                      onClick={e => { e.stopPropagation(); openDrawerWith(allGroupIds) }}
+                      onClick={e => { e.stopPropagation(); openMaterialDrawerWith(allGroupIds) }}
                     >
                       <FileText className="h-3 w-3" />
                       Crear factura
@@ -969,8 +1235,8 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                         const entry = entries.find(e => e.id === id)
                         return s + Number(entry?.total_cost ?? 0) + Number(entry?.fleet_cost ?? 0)
                       }, 0)
-                      const plantAllChecked = allPlantIds.every(id => selected.has(id))
-                      const plantSomeChecked = allPlantIds.some(id => selected.has(id))
+                      const plantAllChecked = allPlantIds.every(id => materialSelected.has(id))
+                      const plantSomeChecked = allPlantIds.some(id => materialSelected.has(id))
                       const plantName = plantMap.get(plantId) ?? plantId
 
                       return (
@@ -991,7 +1257,7 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                                 size="sm"
                                 variant="outline"
                                 className="h-6 text-xs gap-1 border-sky-300 text-sky-700 hover:bg-sky-50"
-                                onClick={e => { e.stopPropagation(); openDrawerWith(allPlantIds) }}
+                                onClick={e => { e.stopPropagation(); openMaterialDrawerWith(allPlantIds) }}
                               >
                                 <FileText className="h-3 w-3" />
                                 Crear factura
@@ -1005,8 +1271,8 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                               const matIds = matData.entries.map(e => e.id)
                               const matExpKey = `${groupKey}:${plantId}:${matId}`
                               const matExpanded = expandedMaterials.has(matExpKey)
-                              const matAllChecked = matIds.every(id => selected.has(id))
-                              const matSomeChecked = matIds.some(id => selected.has(id))
+                              const matAllChecked = matIds.every(id => materialSelected.has(id))
+                              const matSomeChecked = matIds.some(id => materialSelected.has(id))
                               const matTotal = matData.entries.reduce((s, e) => s + Number(e.total_cost ?? 0) + Number(e.fleet_cost ?? 0), 0)
                               const indent = isMultiPlant ? 'px-9' : 'px-6'
 
@@ -1045,11 +1311,11 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
                                         key={entry.id}
                                         className={cn(
                                           `flex items-center gap-3 ${entryIndent} py-2 text-xs hover:bg-sky-50/50 transition-colors`,
-                                          selected.has(entry.id) && 'bg-sky-50'
+                                          materialSelected.has(entry.id) && 'bg-sky-50'
                                         )}
                                       >
                                         <Checkbox
-                                          checked={selected.has(entry.id)}
+                                          checked={materialSelected.has(entry.id)}
                                           onCheckedChange={() => toggleEntry(entry.id)}
                                         />
                                         <span className="font-mono text-stone-700">{entry.entry_number}</span>
@@ -1087,11 +1353,30 @@ export default function OrphanEntriesTab({ workspacePlantId = '', hidePlantFilte
       )}
 
       <CreateSupplierInvoiceDrawer
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        entries={drawerEntries}
-        plantId={drawerEntries[0]?.plant_id}
-        onSuccess={handleDrawerSuccess}
+        open={materialDrawerOpen}
+        onOpenChange={setMaterialDrawerOpen}
+        entries={materialDrawerEntries}
+        plantId={materialDrawerEntries[0]?.plant_id}
+        onSuccess={handleMaterialDrawerSuccess}
+      />
+      <CreateSupplierInvoiceDrawer
+        open={fleetDrawerOpen}
+        onOpenChange={setFleetDrawerOpen}
+        entries={fleetDrawerEntries}
+        plantId={fleetDrawerEntries[0]?.plant_id}
+        fleetOnly
+        onSuccess={handleFleetDrawerSuccess}
+      />
+      <CreateSupplierInvoiceDrawer
+        open={orphanFleetDrawerOpen}
+        onOpenChange={setOrphanFleetDrawerOpen}
+        plantId={plantFilter || undefined}
+        fleetOnly
+        orphanFleetOnly
+        onSuccess={() => {
+          setOrphanFleetDrawerOpen(false)
+          setReloadKey(k => k + 1)
+        }}
       />
       <BulkCfdiInvoiceDialog
         open={bulkDialogOpen}
