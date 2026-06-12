@@ -22,18 +22,16 @@ import RecordPaymentModal from './RecordPaymentModal'
 import CreateSupplierInvoiceDrawer from './CreateSupplierInvoiceDrawer'
 import ApplyCreditNoteDrawer from './ApplyCreditNoteDrawer'
 import EditSupplierInvoiceDrawer from './EditSupplierInvoiceDrawer'
+import CreditNoteAllocDetail, { type CreditNoteInvoiceAllocDetail } from './CreditNoteAllocDetail'
+import EditCreditNoteAllocationsDrawer from './EditCreditNoteAllocationsDrawer'
+import { toast } from 'sonner'
 import { procurementEntriesUrl, purchaseOrderUrl } from '@/lib/procurement/navigation'
 import { formatRetentionPct } from '@/lib/ap/retentionRates'
 import Link from 'next/link'
 
-// Shape returned by GET /api/ap/invoices/[id]/credit-notes (allocation-join projection)
-type CreditNoteAllocation = {
-  id: string                // credit_note_invoice_allocations.id
+type CreditNoteAllocation = CreditNoteInvoiceAllocDetail & {
   credit_note_id: string
-  allocated_subtotal: number
-  allocated_tax: number
-  allocated_total: number | null
-  created_at: string
+  created_at?: string
   credit_note: {
     id: string
     credit_number: string | null
@@ -44,6 +42,9 @@ type CreditNoteAllocation = {
     total: number
     status: string
     notes: string | null
+    supplier_group_id?: string
+    plant_id?: string
+    invoice_allocations?: CreditNoteInvoiceAllocDetail[]
   } | null
 }
 
@@ -118,7 +119,8 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
   const [cnContext, setCnContext] = useState<{ groupId: string; plantId: string; preselectedId?: string } | null>(null)
   const [repDialogOpen, setRepDialogOpen] = useState(false)
   const [bulkCnDialogOpen, setBulkCnDialogOpen] = useState(false)
-  const [creditNoteAllocs, setCreditNoteAllocs] = useState<Record<string, CreditNoteAllocation[]>>({}) // keyed by invoice id
+  const [creditNoteAllocs, setCreditNoteAllocs] = useState<Record<string, CreditNoteAllocation[]>>({})
+  const [editCnFromInvoice, setEditCnFromInvoice] = useState<CreditNoteAllocation['credit_note']>(null)
 
   const mxn = useMemo(() => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }), [])
 
@@ -154,16 +156,44 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
     }
   }, [plantFilter, includePaid, reloadKey])
 
-  const loadCreditNotes = useCallback(async (invoiceId: string) => {
+  const loadCreditNotes = useCallback(async (invoiceId: string, force = false) => {
     try {
       const res = await fetch(`/api/ap/invoices/${invoiceId}/credit-notes`)
       const data = await res.json()
       setCreditNoteAllocs(prev => {
-        if (prev[invoiceId]) return prev
+        if (!force && prev[invoiceId]) return prev
         return { ...prev, [invoiceId]: data.credit_notes ?? [] }
       })
     } catch { /* non-fatal */ }
   }, [])
+
+  const handleVoidCreditNoteFromInvoice = async (cnId: string, invoiceId: string) => {
+    const reason = window.prompt('Motivo de anulación (opcional):')
+    if (reason === null) return
+    const qs = reason.trim() ? `?reason=${encodeURIComponent(reason.trim())}` : ''
+    const res = await fetch(`/api/ap/credit-notes/${cnId}${qs}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json()
+      toast.error(data.error ?? 'No se pudo anular')
+      return
+    }
+    toast.success('Nota de crédito anulada')
+    setCreditNoteAllocs((prev) => { const next = { ...prev }; delete next[invoiceId]; return next })
+    setReloadKey((k) => k + 1)
+  }
+
+  const handleRemoveCnAllocation = async (allocationId: string, invoiceId: string) => {
+    if (!window.confirm('¿Quitar esta asignación de NC?')) return
+    const res = await fetch(`/api/ap/credit-notes/allocations/${allocationId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json()
+      toast.error(data.error ?? 'No se pudo quitar')
+      return
+    }
+    toast.success('Asignación eliminada')
+    void loadCreditNotes(invoiceId, true)
+    setReloadKey((k) => k + 1)
+  }
 
   const supplierOptions = useMemo(() => {
     const map = new Map<string, string>()
@@ -652,25 +682,45 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
                                     {allocs.length === 0 ? (
                                       <p className="text-xs text-muted-foreground">Sin notas de crédito aplicadas.</p>
                                     ) : (
-                                      <div className="space-y-1">
-                                        {allocs.map(alloc => {
+                                      <div className="space-y-3">
+                                        {allocs.map((alloc) => {
                                           const cn = alloc.credit_note
-                                          if (!cn) return null
+                                          if (!cn || cn.status === 'void') return null
                                           return (
-                                            <div key={alloc.id} className="flex justify-between text-xs py-1.5 px-3 bg-emerald-50 rounded border border-emerald-100">
-                                              <span className="text-stone-600">
-                                                {cn.credit_number ? <span className="font-mono mr-2">{cn.credit_number}</span> : null}
-                                                {format(new Date(cn.credit_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
-                                                {' · '}
-                                                {cn.reason === 'price_adjustment' ? 'Ajuste de precio'
-                                                  : cn.reason === 'return' ? 'Devolución'
-                                                  : cn.reason === 'defect' ? 'Defecto'
-                                                  : 'Otro'}
-                                                {Number(cn.amount) !== Number(alloc.allocated_subtotal) && (
-                                                  <span className="ml-1.5 text-stone-400">(NC total: {mxn.format(Number(cn.amount))})</span>
-                                                )}
-                                              </span>
-                                              <span className="tabular-nums font-medium text-emerald-800">−{mxn.format(Number(alloc.allocated_subtotal))}</span>
+                                            <div key={alloc.id} className="space-y-1">
+                                              <div className="flex flex-wrap items-center gap-2 text-xs text-stone-600 px-1">
+                                                <span className="font-mono font-semibold text-stone-800">
+                                                  {cn.credit_number ?? cn.id.slice(0, 8)}
+                                                </span>
+                                                <span>
+                                                  {format(new Date(cn.credit_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
+                                                </span>
+                                                <span className="text-stone-400">
+                                                  NC total: {mxn.format(Number(cn.amount))}
+                                                </span>
+                                              </div>
+                                              <CreditNoteAllocDetail
+                                                allocations={[alloc]}
+                                                showActions
+                                                adminActions
+                                                onRemoveAllocation={
+                                                  (allocs.filter((a) => a.credit_note_id === alloc.credit_note_id).length > 1)
+                                                    ? (id) => void handleRemoveCnAllocation(id, inv.id)
+                                                    : undefined
+                                                }
+                                                onReassign={() => {
+                                                  void (async () => {
+                                                    const res = await fetch(`/api/ap/credit-notes/${cn.id}`)
+                                                    const data = await res.json()
+                                                    if (!res.ok) {
+                                                      toast.error(data.error ?? 'No se pudo cargar la NC')
+                                                      return
+                                                    }
+                                                    setEditCnFromInvoice(data.credit_note)
+                                                  })()
+                                                }}
+                                                onVoid={() => void handleVoidCreditNoteFromInvoice(cn.id, inv.id)}
+                                              />
                                             </div>
                                           )
                                         })}
@@ -751,6 +801,25 @@ export default function InvoicesPayablesTab({ workspacePlantId = '', hidePlantFi
         onOpenChange={setBulkCnDialogOpen}
         workspacePlantId={plantFilter}
         onSuccess={() => setReloadKey((k) => k + 1)}
+      />
+
+      <EditCreditNoteAllocationsDrawer
+        open={!!editCnFromInvoice}
+        onOpenChange={(v) => { if (!v) setEditCnFromInvoice(null) }}
+        creditNote={editCnFromInvoice ? {
+          id: editCnFromInvoice.id,
+          credit_number: editCnFromInvoice.credit_number,
+          amount: editCnFromInvoice.amount,
+          supplier_group_id: editCnFromInvoice.supplier_group_id ?? '',
+          plant_id: editCnFromInvoice.plant_id ?? plantFilter,
+          status: editCnFromInvoice.status,
+          invoice_allocations: editCnFromInvoice.invoice_allocations,
+        } : null}
+        onSuccess={() => {
+          setEditCnFromInvoice(null)
+          setCreditNoteAllocs({})
+          setReloadKey((k) => k + 1)
+        }}
       />
 
       {/* Credit note drawer */}

@@ -9,6 +9,12 @@ import {
   markRelatedUuidMatches,
   relatedUuidsFromCfdi,
 } from '@/lib/ap/cfdiMatchDiagnostics'
+import { loadAvailableInvoicesForCreditNote } from '@/lib/ap/loadAvailableInvoicesForCreditNote'
+import type {
+  CreditNoteAvailableInvoice,
+  CreditNoteInvoiceAllocationInput,
+} from '@/lib/ap/creditNoteAllocationTypes'
+import { distributeProportionalInvoiceAllocations } from '@/lib/ap/creditNoteAllocationTypes'
 
 export type CreditNoteBulkPreviewStatus =
   | 'ready'
@@ -35,40 +41,10 @@ export type CreditNoteBulkPreviewRow = {
   supplier_group_id: string | null
   supplier_group_name: string | null
   plant_id: string | null
-  invoice_allocations: Array<{
-    invoice_id: string
-    invoice_number: string
-    allocated_subtotal: number
-  }>
+  invoice_allocations: CreditNoteInvoiceAllocationInput[]
+  available_invoices: CreditNoteAvailableInvoice[]
   match_diagnostics?: CfdiMatchDiagnostics
   message?: string
-}
-
-function distributeProportional(
-  invoices: Array<{
-    id: string
-    invoice_number: string
-    available: number
-  }>,
-  total: number,
-): Array<{ invoice_id: string; invoice_number: string; allocated_subtotal: number }> {
-  if (invoices.length === 0) return []
-  const sumAvailable = invoices.reduce((s, inv) => s + inv.available, 0)
-  const next: Array<{ invoice_id: string; invoice_number: string; allocated_subtotal: number }> = []
-  let remaining = total
-  invoices.forEach((inv, idx) => {
-    const isLast = idx === invoices.length - 1
-    const share = isLast
-      ? Math.round(remaining * 100) / 100
-      : Math.round((inv.available / (sumAvailable || 1)) * total * 100) / 100
-    if (!isLast) remaining -= share
-    next.push({
-      invoice_id: inv.id,
-      invoice_number: inv.invoice_number,
-      allocated_subtotal: share,
-    })
-  })
-  return next
 }
 
 export type BuildCreditNoteBulkOptions = {
@@ -85,6 +61,7 @@ export async function buildCreditNoteBulkPreview(
   const plantFilter = options.plantId ?? null
   const rows: CreditNoteBulkPreviewRow[] = []
   const openInvoicesCache = new Map<string, Awaited<ReturnType<typeof loadOpenInvoicesForSupplierGroup>>>()
+  const availableInvoicesCache = new Map<string, CreditNoteAvailableInvoice[]>()
 
   const withUploadFlags = markUploadDuplicates(
     items.map(i => ({ id: i.cfdi.uuid, cfdi: i.cfdi, file_name: i.file_name })),
@@ -99,6 +76,16 @@ export async function buildCreditNoteBulkPreview(
       )
     }
     return openInvoicesCache.get(groupId)!
+  }
+
+  async function availableForGroup(groupId: string) {
+    if (!availableInvoicesCache.has(groupId)) {
+      availableInvoicesCache.set(
+        groupId,
+        await loadAvailableInvoicesForCreditNote(supabase, groupId, plantFilter),
+      )
+    }
+    return availableInvoicesCache.get(groupId)!
   }
 
   for (const { file_name, cfdi } of items) {
@@ -125,6 +112,7 @@ export async function buildCreditNoteBulkPreview(
       supplier_group_name: null,
       plant_id: plantFilter,
       invoice_allocations: [],
+      available_invoices: [],
     }
 
     const pushWithDiagnostics = (
@@ -187,6 +175,7 @@ export async function buildCreditNoteBulkPreview(
 
     base.supplier_group_id = matchingGroup.id
     base.supplier_group_name = matchingGroup.name
+    base.available_invoices = await availableForGroup(matchingGroup.id)
 
     const ncDups = await lookupCreditNoteDuplicates(supabase, {
       cfdiUuid: cfdi.uuid,
@@ -213,11 +202,19 @@ export async function buildCreditNoteBulkPreview(
 
     const relUuids = cfdi.cfdi_relacionados.map((r) => r.uuid.toLowerCase())
     if (relUuids.length === 0) {
-      pushWithDiagnostics(base, 'no_related_invoices', {
-        supplierGroupName: matchingGroup.name,
-        openInvoices,
-        message: 'Sin CfdiRelacionados en el XML — agregue la relación al CFDI o vincule manualmente',
-      })
+      pushWithDiagnostics(
+        {
+          ...base,
+          status: 'no_related_invoices',
+          message: 'Sin CfdiRelacionados — asigne facturas manualmente abajo',
+        },
+        'no_related_invoices',
+        {
+          supplierGroupName: matchingGroup.name,
+          openInvoices,
+          message: 'Sin CfdiRelacionados en el XML — asigne facturas manualmente',
+        },
+      )
       continue
     }
 
@@ -260,7 +257,7 @@ export async function buildCreditNoteBulkPreview(
       }
     })
 
-    const allocations = distributeProportional(withAvailable, base.amount)
+    const allocations = distributeProportionalInvoiceAllocations(withAvailable, base.amount)
     const allocSum = allocations.reduce((s, a) => s + a.allocated_subtotal, 0)
     if (Math.abs(allocSum - base.amount) > 0.01) {
       pushWithDiagnostics(

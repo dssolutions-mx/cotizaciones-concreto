@@ -9,27 +9,18 @@ import {
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import {
-  ChevronDown, ChevronRight, Download, FileText, Receipt, X,
+  ChevronDown, ChevronRight, Download, Receipt, X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { usePlantContext } from '@/contexts/PlantContext'
 import type { CreditNoteReason, CreditNoteStatus } from '@/types/finance'
 import ApplyCreditNoteDrawer from './ApplyCreditNoteDrawer'
 import BulkCreditNoteDialog from './BulkCreditNoteDialog'
+import CreditNoteAllocDetail, { type CreditNoteInvoiceAllocDetail } from './CreditNoteAllocDetail'
+import EditCreditNoteAllocationsDrawer from './EditCreditNoteAllocationsDrawer'
+import { toast } from 'sonner'
 
-type CnInvoiceAllocation = {
-  id: string
-  invoice_id: string
-  allocated_subtotal: number
-  allocated_tax: number
-  allocated_total: number | null
-  invoice?: {
-    id: string
-    invoice_number: string
-    total: number
-    status: string
-  } | null
-}
+type CnInvoiceAllocation = CreditNoteInvoiceAllocDetail
 
 type CreditNoteRow = {
   id: string
@@ -97,6 +88,8 @@ export default function CreditNotesPayablesTab({
   const [expandedNotes, setExpandedNotes] = useState<Set<string>>(new Set())
   const [cnContext, setCnContext] = useState<{ groupId: string; plantId: string } | null>(null)
   const [bulkCnDialogOpen, setBulkCnDialogOpen] = useState(false)
+  const [editCn, setEditCn] = useState<CreditNoteRow | null>(null)
+  const [voidingId, setVoidingId] = useState<string | null>(null)
 
   const mxn = useMemo(
     () => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }),
@@ -171,6 +164,37 @@ export default function CreditNotesPayablesTab({
     }
     return map
   }, [filteredNotes])
+
+  const handleVoidCreditNote = async (note: CreditNoteRow) => {
+    const reason = window.prompt('Motivo de anulación (opcional):')
+    if (reason === null) return
+    setVoidingId(note.id)
+    try {
+      const qs = reason.trim() ? `?reason=${encodeURIComponent(reason.trim())}` : ''
+      const res = await fetch(`/api/ap/credit-notes/${note.id}${qs}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json()
+        toast.error(data.error ?? 'No se pudo anular')
+        return
+      }
+      toast.success('Nota de crédito anulada')
+      setReloadKey((k) => k + 1)
+    } finally {
+      setVoidingId(null)
+    }
+  }
+
+  const handleRemoveAllocation = async (note: CreditNoteRow, allocationId: string) => {
+    if (!window.confirm('¿Quitar esta factura de la nota de crédito? Se recalcularán saldos y precios.')) return
+    const res = await fetch(`/api/ap/credit-notes/allocations/${allocationId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json()
+      toast.error(data.error ?? 'No se pudo quitar')
+      return
+    }
+    toast.success('Asignación eliminada')
+    setReloadKey((k) => k + 1)
+  }
 
   const exportExcel = async () => {
     if (filteredNotes.length === 0) return
@@ -477,32 +501,28 @@ export default function CreditNotesPayablesTab({
 
                               <div>
                                 <p className="text-xs font-semibold text-stone-700 mb-2">Aplicación a facturas</p>
-                                {allocs.length === 0 ? (
-                                  <p className="text-xs text-muted-foreground">Sin facturas vinculadas.</p>
-                                ) : (
-                                  <div className="space-y-1">
-                                    {allocs.map(alloc => (
-                                      <div
-                                        key={alloc.id}
-                                        className="flex justify-between text-xs py-1.5 px-3 bg-white rounded border border-stone-100"
-                                      >
-                                        <span className="text-stone-600">
-                                          <FileText className="h-3 w-3 inline mr-1 text-stone-400" />
-                                          <span className="font-mono">
-                                            {alloc.invoice?.invoice_number ?? alloc.invoice_id.slice(0, 8)}
-                                          </span>
-                                          {alloc.invoice?.status && (
-                                            <span className="ml-2 text-stone-400">
-                                              ({alloc.invoice.status})
-                                            </span>
-                                          )}
-                                        </span>
-                                        <span className="tabular-nums font-medium text-emerald-700">
-                                          −{mxn.format(Number(alloc.allocated_total ?? alloc.allocated_subtotal))}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
+                                <CreditNoteAllocDetail
+                                  allocations={allocs}
+                                  showActions={note.status !== 'void'}
+                                  adminActions
+                                  onRemoveAllocation={
+                                    allocs.length > 1
+                                      ? (id) => void handleRemoveAllocation(note, id)
+                                      : undefined
+                                  }
+                                  onReassign={
+                                    note.status !== 'void'
+                                      ? () => setEditCn(note)
+                                      : undefined
+                                  }
+                                  onVoid={
+                                    note.status !== 'void'
+                                      ? () => void handleVoidCreditNote(note)
+                                      : undefined
+                                  }
+                                />
+                                {voidingId === note.id && (
+                                  <p className="text-[10px] text-stone-400 mt-1">Anulando…</p>
                                 )}
                               </div>
                             </div>
@@ -533,6 +553,16 @@ export default function CreditNotesPayablesTab({
         onSuccess={() => {
           setCnContext(null)
           setReloadKey(k => k + 1)
+        }}
+      />
+
+      <EditCreditNoteAllocationsDrawer
+        open={!!editCn}
+        onOpenChange={(v) => { if (!v) setEditCn(null) }}
+        creditNote={editCn}
+        onSuccess={() => {
+          setEditCn(null)
+          setReloadKey((k) => k + 1)
         }}
       />
     </div>

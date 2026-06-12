@@ -31,7 +31,11 @@ export async function GET(
           vat_rate, status, notes, applied_by
         ),
         item_allocations:invoice_credit_note_allocations(
-          id, invoice_item_id, allocated_amount
+          id, invoice_item_id, allocated_amount,
+          invoice_item:supplier_invoice_items!invoice_item_id(
+            id, description, cost_category, entry_id,
+            entry:material_entries!entry_id(id, entry_number)
+          )
         )
       `)
       .eq('invoice_id', invoiceId)

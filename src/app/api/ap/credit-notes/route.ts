@@ -41,7 +41,11 @@ export async function GET(request: NextRequest) {
             id, invoice_number, subtotal, total, status
           ),
           item_allocations:invoice_credit_note_allocations(
-            id, invoice_item_id, allocated_amount
+            id, invoice_item_id, allocated_amount,
+            invoice_item:supplier_invoice_items!invoice_item_id(
+              id, description, cost_category, entry_id,
+              entry:material_entries!entry_id(id, entry_number)
+            )
           )
         )
       `)

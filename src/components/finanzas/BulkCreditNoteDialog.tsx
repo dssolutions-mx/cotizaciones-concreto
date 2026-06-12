@@ -25,28 +25,27 @@ import ImportReviewToolbar, { type ImportReviewFilter } from '@/components/finan
 import MatchDiagnosticsPanel from '@/components/finanzas/cfdi-import/MatchDiagnosticsPanel'
 import { UuidChip } from '@/components/finanzas/cfdi-import/UuidChip'
 import ImportAllocatedSummary from '@/components/finanzas/cfdi-import/ImportAllocatedSummary'
+import CreditNoteInvoiceAllocator from '@/components/finanzas/CreditNoteInvoiceAllocator'
+import type { CreditNoteInvoiceAllocationInput } from '@/lib/ap/creditNoteAllocationTypes'
+import { isAllocationBalanced } from '@/lib/ap/creditNoteAllocationTypes'
 
 const mxn = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' })
 
 const STATUS_LABELS: Record<CreditNoteBulkPreviewRow['status'], string> = {
   ready: 'Listo para crear',
   duplicate: 'Ya registrada',
-  no_related_invoices: 'Sin match',
+  no_related_invoices: 'Asignar manualmente',
   allocation_mismatch: 'Reparto inválido',
   receptor_mismatch: 'RFC receptor',
   missing_supplier_group: 'Sin proveedor en CxP',
 }
 
-function isReady(r: CreditNoteBulkPreviewRow) {
-  return r.status === 'ready'
+function isAllocated(r: CreditNoteBulkPreviewRow) {
+  return r.status === 'duplicate'
 }
 
 function needsAttention(r: CreditNoteBulkPreviewRow) {
   return r.status !== 'ready' && r.status !== 'duplicate'
-}
-
-function isAllocated(r: CreditNoteBulkPreviewRow) {
-  return r.status === 'duplicate'
 }
 
 function rowMatchesSearch(r: CreditNoteBulkPreviewRow, q: string) {
@@ -63,23 +62,40 @@ function rowMatchesSearch(r: CreditNoteBulkPreviewRow, q: string) {
   )
 }
 
+function isCreatable(
+  row: CreditNoteBulkPreviewRow,
+  allocations: CreditNoteInvoiceAllocationInput[],
+): boolean {
+  if (isAllocated(row)) return false
+  if (row.status === 'duplicate' || row.status === 'receptor_mismatch' || row.status === 'missing_supplier_group') {
+    return false
+  }
+  if (!row.supplier_group_id || !row.plant_id) return false
+  if (allocations.length === 0) return false
+  return isAllocationBalanced(row.amount, allocations)
+}
+
 function NcReviewCard({
   row,
   selected,
+  allocations,
   onToggleSelect,
+  onAllocationsChange,
 }: {
   row: CreditNoteBulkPreviewRow
   selected: boolean
+  allocations: CreditNoteInvoiceAllocationInput[]
   onToggleSelect: (checked: boolean) => void
+  onAllocationsChange: (next: CreditNoteInvoiceAllocationInput[]) => void
 }) {
-  const canSelect = isReady(row)
+  const creatable = isCreatable(row, allocations)
   const allocated = isAllocated(row)
-  const defaultOpen = needsAttention(row)
+  const defaultOpen = needsAttention(row) || creatable
 
   return (
     <Collapsible defaultOpen={defaultOpen} className="rounded-lg border border-stone-200 bg-white overflow-hidden">
       <div className="flex items-start gap-2 p-3 border-b border-stone-100">
-        {canSelect ? (
+        {creatable ? (
           <Checkbox
             className="mt-1"
             checked={selected}
@@ -93,14 +109,14 @@ function NcReviewCard({
             <span
               className={cn(
                 'px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide',
-                canSelect
+                creatable
                   ? 'bg-emerald-100 text-emerald-900'
                   : allocated
                     ? 'bg-sky-100 text-sky-900'
                     : 'bg-amber-100 text-amber-900',
               )}
             >
-              {STATUS_LABELS[row.status]}
+              {creatable ? 'Listo para crear' : STATUS_LABELS[row.status]}
             </span>
             <span className="font-mono font-semibold text-sm">{row.credit_number}</span>
             <span className="text-sm text-stone-800">{mxn.format(row.amount)}</span>
@@ -115,6 +131,12 @@ function NcReviewCard({
               <span className="text-stone-500">· Grupo: {row.supplier_group_name}</span>
             )}
           </div>
+          {allocations.length > 0 && (
+            <div className="mt-1 text-[10px] text-stone-500">
+              {allocations.length} factura(s):{' '}
+              {allocations.map((a) => a.invoice_number ?? a.invoice_id.slice(0, 8)).join(', ')}
+            </div>
+          )}
           {row.message && (
             <p className="text-xs text-amber-800 mt-1">{row.message}</p>
           )}
@@ -142,27 +164,17 @@ function NcReviewCard({
               <span className="text-stone-500">RFC receptor (empresa)</span>
               <p className="font-mono">{row.receptor_rfc}</p>
             </div>
-            {(row.cfdi_serie || row.cfdi_folio) && (
-              <div>
-                <span className="text-stone-500">Serie / folio CFDI</span>
-                <p className="font-mono">
-                  {[row.cfdi_serie, row.cfdi_folio].filter(Boolean).join('-')}
-                </p>
-              </div>
-            )}
           </div>
 
-          {row.invoice_allocations.length > 0 && (
-            <div className="text-xs">
-              <p className="font-medium text-stone-700 mb-1">Asignación propuesta</p>
-              <ul className="space-y-0.5">
-                {row.invoice_allocations.map((a) => (
-                  <li key={a.invoice_id} className="flex justify-between gap-2">
-                    <span className="font-mono">{a.invoice_number}</span>
-                    <span className="tabular-nums">{mxn.format(a.allocated_subtotal)}</span>
-                  </li>
-                ))}
-              </ul>
+          {row.available_invoices.length > 0 && !allocated && (
+            <div className="rounded-md border border-sky-200 bg-white p-3">
+              <CreditNoteInvoiceAllocator
+                amount={row.amount}
+                invoices={row.available_invoices}
+                allocations={allocations}
+                onChange={onAllocationsChange}
+                compact
+              />
             </div>
           )}
 
@@ -190,14 +202,19 @@ export default function BulkCreditNoteDialog({
   const [creating, setCreating] = useState(false)
   const [preview, setPreview] = useState<CreditNoteBulkPreviewRow[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [allocOverrides, setAllocOverrides] = useState<Record<string, CreditNoteInvoiceAllocationInput[]>>({})
   const [parseErrors, setParseErrors] = useState<Array<{ file: string; message: string }>>([])
   const [filter, setFilter] = useState<ImportReviewFilter>('all')
   const [search, setSearch] = useState('')
   const [groupByRfc, setGroupByRfc] = useState(true)
 
+  const getAllocations = (row: CreditNoteBulkPreviewRow) =>
+    allocOverrides[row.cfdi_uuid] ?? row.invoice_allocations
+
   const reset = () => {
     setPreview([])
     setSelected(new Set())
+    setAllocOverrides({})
     setParseErrors([])
     setFilter('all')
     setSearch('')
@@ -205,23 +222,23 @@ export default function BulkCreditNoteDialog({
 
   const allocatedRows = useMemo(() => preview.filter(isAllocated), [preview])
 
-  const counts = useMemo(
-    () => ({
+  const counts = useMemo(() => {
+    const ready = preview.filter((r) => isCreatable(r, getAllocations(r))).length
+    return {
       all: preview.length,
-      ready: preview.filter(isReady).length,
+      ready,
       attention: preview.filter(needsAttention).length,
       allocated: allocatedRows.length,
-    }),
-    [preview, allocatedRows],
-  )
+    }
+  }, [preview, allocatedRows, allocOverrides])
 
   const filtered = useMemo(() => {
     return preview.filter((r) => {
-      if (filter === 'ready' && !isReady(r)) return false
+      if (filter === 'ready' && !isCreatable(r, getAllocations(r))) return false
       if (filter === 'attention' && !needsAttention(r)) return false
       return rowMatchesSearch(r, search)
     })
-  }, [preview, filter, search])
+  }, [preview, filter, search, allocOverrides])
 
   const grouped = useMemo(() => {
     if (!groupByRfc) return null
@@ -252,24 +269,24 @@ export default function BulkCreditNoteDialog({
 
       const rows: CreditNoteBulkPreviewRow[] = data.preview ?? []
       setPreview(rows)
-      setParseErrors(data.errors ?? [])
-      setSelected(new Set(rows.filter(isReady).map((r) => r.cfdi_uuid)))
+      const initialSelected = rows.filter((r) => isCreatable(r, r.invoice_allocations))
+      setSelected(new Set(initialSelected.map((r) => r.cfdi_uuid)))
 
       if (rows.length === 0) {
         toast.error('No se encontraron notas de crédito (tipo E) válidas')
         return
       }
-      const readyN = rows.filter(isReady).length
+      const readyN = initialSelected.length
       const allocN = rows.filter(isAllocated).length
       const attn = rows.filter(needsAttention).length
       if (attn > 0) {
         setFilter('attention')
         toast.info(
-          `${readyN} lista(s)${allocN ? `, ${allocN} ya registrada(s)` : ''}, ${attn} a revisar — expanda cada tarjeta`,
+          `${readyN} lista(s)${allocN ? `, ${allocN} ya registrada(s)` : ''}, ${attn} a revisar — revise asignación en cada tarjeta`,
         )
       } else {
         toast.success(
-          `${readyN} NC lista(s) para aplicar${allocN ? ` · ${allocN} ya registrada(s) (omitidas)` : ''}`,
+          `${readyN} NC lista(s) — revise asignación antes de crear${allocN ? ` · ${allocN} omitida(s)` : ''}`,
         )
       }
     } finally {
@@ -279,34 +296,41 @@ export default function BulkCreditNoteDialog({
   }
 
   const handleCreate = async () => {
-    const rows = preview.filter((r) => selected.has(r.cfdi_uuid) && isReady(r))
+    const rows = preview.filter((r) => selected.has(r.cfdi_uuid) && isCreatable(r, getAllocations(r)))
     if (rows.length === 0) {
-      toast.error('Seleccione al menos una NC lista')
-      return
-    }
-
-    const missingPlant = rows.find((r) => !r.plant_id)
-    if (missingPlant) {
-      toast.error('Falta planta en una o más NC — filtre por planta o vincule facturas')
+      toast.error('Seleccione al menos una NC con asignación válida')
       return
     }
 
     setCreating(true)
     try {
-      const credit_notes = rows.map((r) => ({
-        supplier_group_id: r.supplier_group_id!,
-        plant_id: r.plant_id!,
-        credit_number: r.credit_number,
-        credit_date: r.credit_date,
-        reason: r.reason,
-        amount: r.amount,
-        vat_rate: r.vat_rate,
-        invoice_allocations: r.invoice_allocations,
-        cfdi_uuid: r.cfdi_uuid,
-        cfdi_tipo_comprobante: 'E',
-        cfdi_emisor_rfc: r.emisor_rfc,
-        cfdi_capture_mode: 'cfdi',
-      }))
+      const credit_notes = rows.map((r) => {
+        const allocs = getAllocations(r)
+        const firstInv = r.available_invoices.find((inv) =>
+          allocs.some((a) => a.invoice_id === inv.id),
+        )
+        const plantId = r.plant_id ?? firstInv?.plant_id ?? workspacePlantId
+        return {
+          supplier_group_id: r.supplier_group_id!,
+          plant_id: plantId,
+          credit_number: r.credit_number,
+          credit_date: r.credit_date,
+          reason: r.reason,
+          amount: r.amount,
+          vat_rate: r.vat_rate,
+          invoice_allocations: allocs,
+          cfdi_uuid: r.cfdi_uuid,
+          cfdi_tipo_comprobante: 'E',
+          cfdi_emisor_rfc: r.emisor_rfc,
+          cfdi_capture_mode: 'cfdi',
+        }
+      })
+
+      const missingPlant = credit_notes.find((cn) => !cn.plant_id)
+      if (missingPlant) {
+        toast.error('Falta planta en una o más NC')
+        return
+      }
 
       const res = await fetch('/api/ap/credit-notes/bulk', {
         method: 'POST',
@@ -338,6 +362,7 @@ export default function BulkCreditNoteDialog({
           key={r.cfdi_uuid}
           row={r}
           selected={selected.has(r.cfdi_uuid)}
+          allocations={getAllocations(r)}
           onToggleSelect={(checked) => {
             setSelected((prev) => {
               const next = new Set(prev)
@@ -345,6 +370,12 @@ export default function BulkCreditNoteDialog({
               else next.delete(r.cfdi_uuid)
               return next
             })
+          }}
+          onAllocationsChange={(next) => {
+            setAllocOverrides((prev) => ({ ...prev, [r.cfdi_uuid]: next }))
+            if (isCreatable(r, next)) {
+              setSelected((prev) => new Set(prev).add(r.cfdi_uuid))
+            }
           }}
         />
       ))}
@@ -357,8 +388,7 @@ export default function BulkCreditNoteDialog({
         <DialogHeader>
           <DialogTitle>Notas de crédito masivas (ZIP/XML)</DialogTitle>
           <DialogDescription>
-            CFDI tipo Egreso (E). El match usa el RFC del emisor como proveedor y los UUID en
-            CfdiRelacionados contra facturas abiertas en CxP. Expanda cada fila para ver criterios y facturas del proveedor.
+            CFDI tipo Egreso (E). Revise y ajuste la asignación a facturas y líneas antes de crear.
           </DialogDescription>
         </DialogHeader>
 
