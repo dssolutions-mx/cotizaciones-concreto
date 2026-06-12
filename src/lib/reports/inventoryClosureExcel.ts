@@ -8,6 +8,16 @@ import {
   fetchRemisionMaterialesByRemisionIds,
 } from '@/lib/procurement/consumosSupabaseFetch'
 import { computeBridgeTheoreticalFinalKg } from '@/lib/inventory/theoreticalBridge'
+import {
+  adjustmentSourceLabelEs,
+  adjustmentTypeLabelEs,
+  classifyAdjustmentSource,
+  signedQuantityForStockEffect,
+  stockDirectionForType,
+} from '@/lib/inventory/adjustmentModel'
+import { formatClosureMaterialLabel } from './inventoryClosureExportFileName'
+
+export { buildInventoryClosureExportFileName } from './inventoryClosureExportFileName'
 
 export type InventoryClosureExcelOptions = {
   /** Draft / in-progress report for supervisor review — not the legal sealed export */
@@ -132,7 +142,7 @@ type ConsumoRemisionRow = {
   fecha: string
   cliente: string
   obra: string
-  material_name: string
+  material_label: string
   /** Dosificación de mezcla / receta en el ticket (no es inventario del almacén). */
   cantidad_teorica: number
   /** Consumo registrado en remisión (incluye retrabajo/manual ya sumados en cantidad_real). */
@@ -328,7 +338,7 @@ async function buildResumenSheet(
 
     for (const m of detail.materials.filter((m) => m.requires_justification)) {
       const mRow = ws.getRow(r++)
-      mRow.getCell(1).value = `  · ${m.material?.material_name ?? m.material_id}`
+      mRow.getCell(1).value = `  · ${formatClosureMaterialLabel(m.material, m.material_id)}`
       mRow.getCell(2).value = m.variance_pct != null ? `${m.variance_pct.toFixed(2)}%` : '—'
       mRow.getCell(3).value = m.justification_text ?? '(sin justificación)'
       ws.mergeCells(r - 1, 3, r - 1, 5)
@@ -435,7 +445,7 @@ function buildConciliacionSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDe
     )
 
     const vals = [
-      m.material?.material_name ?? m.material_id,
+      formatClosureMaterialLabel(m.material, m.material_id),
       m.material?.category ?? '—',
       m.initial_stock_kg ?? 0,
       m.period_entries_kg ?? 0,
@@ -508,7 +518,7 @@ async function buildEntradasSheet(wb: ExcelJS.Workbook, detail: InventoryClosure
 
   const { data: entries } = await supabase
     .from('material_entries')
-    .select('entry_number, entry_date, material:materials(material_name), quantity_received, received_qty_kg, unit_price, total_cost, supplier_invoice, entered_by_user:user_profiles!entered_by(first_name, last_name)')
+    .select('entry_number, entry_date, material:materials(material_code, material_name), quantity_received, received_qty_kg, unit_price, total_cost, supplier_invoice, entered_by_user:user_profiles!entered_by(first_name, last_name)')
     .eq('plant_id', detail.plant_id)
     .gte('entry_date', detail.period_start)
     .lte('entry_date', detail.period_end)
@@ -539,7 +549,7 @@ async function buildEntradasSheet(wb: ExcelJS.Workbook, detail: InventoryClosure
     const row = ws.getRow(r++)
     row.height = 14
     const userName = e.entered_by_user ? `${e.entered_by_user.first_name} ${e.entered_by_user.last_name}` : '—'
-    const vals = [e.entry_number, e.entry_date, e.material?.material_name ?? '—', e.quantity_received, e.received_qty_kg, e.unit_price ?? '—', e.total_cost ?? '—', e.supplier_invoice ?? '—', userName]
+    const vals = [e.entry_number, e.entry_date, formatClosureMaterialLabel(e.material), e.quantity_received, e.received_qty_kg, e.unit_price ?? '—', e.total_cost ?? '—', e.supplier_invoice ?? '—', userName]
     vals.forEach((v, i) => {
       const cell = row.getCell(i + 1)
       cell.value = typeof v === 'number' ? Number(v) : v
@@ -558,7 +568,7 @@ const RM_CLOSURE_SELECT = `
   cantidad_real,
   ajuste,
   remision_id,
-  materials (material_name),
+  materials (material_code, material_name),
   remisiones (
     id,
     remision_number,
@@ -597,7 +607,7 @@ async function fetchClosureConsumoRows(
     cantidad_teorica?: number | string | null
     cantidad_real?: number | string | null
     ajuste?: number | string | null
-    materials?: { material_name?: string | null } | null
+    materials?: { material_code?: string | null; material_name?: string | null } | null
     remisiones?: {
       remision_number?: string | null
       fecha?: string | null
@@ -619,7 +629,7 @@ async function fetchClosureConsumoRows(
       fecha: rem.fecha,
       cliente,
       obra,
-      material_name: row.materials?.material_name ?? '—',
+      material_label: formatClosureMaterialLabel(row.materials),
       cantidad_teorica: Number(row.cantidad_teorica ?? 0),
       cantidad_real: Number(row.cantidad_real ?? 0),
       ajuste_remision: Number(row.ajuste ?? 0),
@@ -687,7 +697,7 @@ function buildPuenteTeoricoSheet(wb: ExcelJS.Workbook, detail: InventoryClosureD
     const row = ws.getRow(r++)
     row.height = 14
     const vals = [
-      m.material?.material_name ?? m.material_id,
+      formatClosureMaterialLabel(m.material, m.material_id),
       m.initial_stock_kg ?? 0,
       m.period_entries_kg ?? 0,
       adj,
@@ -714,7 +724,7 @@ function buildConsumosResumenSheet(wb: ExcelJS.Workbook, consumoRows: ConsumoRem
     { receta: number; real: number; ajusteLinea: number; remisiones: number }
   >()
   for (const row of consumoRows) {
-    const cur = byMaterial.get(row.material_name) ?? {
+    const cur = byMaterial.get(row.material_label) ?? {
       receta: 0,
       real: 0,
       ajusteLinea: 0,
@@ -724,7 +734,7 @@ function buildConsumosResumenSheet(wb: ExcelJS.Workbook, consumoRows: ConsumoRem
     cur.real += row.cantidad_real
     cur.ajusteLinea += row.ajuste_remision
     cur.remisiones += 1
-    byMaterial.set(row.material_name, cur)
+    byMaterial.set(row.material_label, cur)
   }
 
   const cols = [
@@ -824,7 +834,7 @@ async function buildConsumosSheet(
       row.fecha,
       row.cliente,
       row.obra,
-      row.material_name,
+      row.material_label,
       row.cantidad_teorica,
       row.cantidad_real,
       row.ajuste_remision,
@@ -850,56 +860,188 @@ async function buildConsumosSheet(
 // ─────────────────────────────────────────────────────────────────────────────
 async function buildAjustesSheet(wb: ExcelJS.Workbook, detail: InventoryClosureDetail, supabase: any) {
   const ws = wb.addWorksheet('Ajustes')
-  ws.views = [{ state: 'frozen', ySplit: 2 }]
+  ws.views = [{ state: 'frozen', ySplit: 3 }]
 
   const { data: adjustments } = await supabase
     .from('material_adjustments')
-    .select('adjustment_number, adjustment_date, adjustment_type, quantity_adjusted, inventory_before, inventory_after, reference_notes, adjusted_by_user:user_profiles!adjusted_by(first_name, last_name), material:materials(material_name)')
+    .select(
+      'id, adjustment_number, adjustment_date, adjustment_type, quantity_adjusted, inventory_before, inventory_after, reference_type, reference_notes, adjusted_by_user:user_profiles!adjusted_by(first_name, last_name), material:materials(material_code, material_name)',
+    )
     .eq('plant_id', detail.plant_id)
     .gte('adjustment_date', detail.period_start)
     .lte('adjustment_date', detail.period_end)
     .order('adjustment_date')
 
-  const closureAdjIds = new Set(detail.materials.map((m) => m.adjustment_id).filter(Boolean))
+  const closureAdjIds = new Set(
+    detail.materials.map((m) => m.adjustment_id).filter((id): id is string => Boolean(id)),
+  )
+
+  type AdjustmentRow = {
+    id: string
+    adjustment_number: string
+    adjustment_date: string
+    adjustment_type: string
+    quantity_adjusted: number
+    inventory_before: number
+    inventory_after: number
+    reference_type?: string | null
+    reference_notes?: string | null
+    adjusted_by_user?: { first_name?: string; last_name?: string } | null
+    material?: { material_code?: string | null; material_name?: string | null } | null
+  }
+
+  const sorted = [...((adjustments ?? []) as AdjustmentRow[])].sort((a, b) => {
+    const matCmp = formatClosureMaterialLabel(a.material).localeCompare(
+      formatClosureMaterialLabel(b.material),
+      'es',
+    )
+    if (matCmp !== 0) return matCmp
+    const dateCmp = a.adjustment_date.localeCompare(b.adjustment_date)
+    if (dateCmp !== 0) return dateCmp
+    return a.adjustment_number.localeCompare(b.adjustment_number)
+  })
 
   const cols = [
-    { header: '# Ajuste', width: 20 },
-    { header: 'Fecha', width: 14 },
-    { header: 'Material', width: 28 },
-    { header: 'Tipo', width: 20 },
-    { header: 'Cantidad (kg)', width: 16 },
-    { header: 'Stock antes', width: 14 },
-    { header: 'Stock después', width: 14 },
-    { header: 'Notas / referencia', width: 40 },
-    { header: 'Realizado por', width: 22 },
-    { header: 'Del cierre', width: 12 },
+    { header: '# Ajuste', width: 18 },
+    { header: 'Fecha', width: 12 },
+    { header: 'Material', width: 34 },
+    { header: 'Tipo', width: 22 },
+    { header: 'Efecto', width: 8 },
+    { header: 'Cantidad (kg)', width: 14 },
+    { header: 'Ajuste neto (kg)', width: 16 },
+    { header: 'Stock antes (kg)', width: 16 },
+    { header: 'Stock después (kg)', width: 16 },
+    { header: 'Origen', width: 18 },
+    { header: 'Notas / referencia', width: 36 },
+    { header: 'Realizado por', width: 20 },
   ]
 
-  titleRow(ws, 'Ajustes del período', cols.length, 1)
+  titleRow(ws, 'Ajustes de inventario del período', cols.length, 1)
+
+  ws.getRow(2).height = 36
+  const noteCell = ws.getCell(2, 1)
+  noteCell.value =
+    'Cantidad siempre es positiva; el efecto (+/−) y «Ajuste neto» indican el impacto en almacén. ' +
+    'Los ajustes generados al sellar el cierre aparecen resaltados en verde. ' +
+    'Estos movimientos alimentan la columna «Ajustes neto» del puente teórico (no confundir con ajuste en línea de remisión).'
+  noteCell.style = {
+    font: { italic: true, size: 9, color: { argb: argb(C.textMuted) }, name: 'Calibri' },
+    alignment: { wrapText: true, vertical: 'top' },
+  }
+  ws.mergeCells(2, 1, 2, cols.length)
+
   ws.columns = cols.map((c) => ({ width: c.width }))
 
-  const hRow = ws.getRow(2)
-  hRow.height = 30
-  cols.forEach((c, i) => { const cell = hRow.getCell(i + 1); cell.value = c.header; cell.style = headerStyle() })
+  const headerRowIdx = 3
+  const hRow = ws.getRow(headerRowIdx)
+  hRow.height = 32
+  cols.forEach((c, i) => {
+    const cell = hRow.getCell(i + 1)
+    cell.value = c.header
+    cell.style = headerStyle()
+  })
 
-  let r = 3
-  for (const a of (adjustments ?? [])) {
-    const alt = r % 2 === 0
+  let r = headerRowIdx + 1
+  let totalNet = 0
+  let totalIn = 0
+  let totalOut = 0
+
+  for (const a of sorted) {
+    const alt = r % 2 === 1
     const row = ws.getRow(r++)
-    row.height = 14
-    const userName = a.adjusted_by_user ? `${a.adjusted_by_user.first_name} ${a.adjusted_by_user.last_name}` : '—'
-    const isClosure = closureAdjIds.has(a.id)
-    const vals = [a.adjustment_number, a.adjustment_date, a.material?.material_name ?? '—', a.adjustment_type, a.quantity_adjusted, a.inventory_before, a.inventory_after, a.reference_notes ?? '—', userName, isClosure ? 'Sí' : 'No']
+    row.height = 15
+
+    const sourceCategory = classifyAdjustmentSource(a.reference_type, a.reference_notes)
+    const isClosure =
+      sourceCategory === 'closure' || closureAdjIds.has(a.id)
+    const signedKg = signedQuantityForStockEffect(a.adjustment_type, a.quantity_adjusted)
+    totalNet += signedKg
+    if (signedKg >= 0) totalIn += signedKg
+    else totalOut += Math.abs(signedKg)
+
+    const direction = stockDirectionForType(a.adjustment_type)
+    const userName = a.adjusted_by_user
+      ? `${a.adjusted_by_user.first_name} ${a.adjusted_by_user.last_name}`.trim()
+      : '—'
+
+    const vals: (string | number)[] = [
+      a.adjustment_number,
+      a.adjustment_date,
+      formatClosureMaterialLabel(a.material),
+      adjustmentTypeLabelEs(a.adjustment_type),
+      direction === 'increase' ? '+' : '−',
+      Math.abs(Number(a.quantity_adjusted)),
+      signedKg,
+      a.inventory_before,
+      a.inventory_after,
+      adjustmentSourceLabelEs(sourceCategory),
+      a.reference_notes?.trim() || '—',
+      userName,
+    ]
+
     vals.forEach((v, i) => {
       const cell = row.getCell(i + 1)
-      cell.value = typeof v === 'number' ? Number(v) : v
-      if (typeof v === 'number' && i >= 4) cell.numFmt = '#,##0.00'
+      cell.value = typeof v === 'number' ? Number(v.toFixed(4)) : v
+      if (typeof v === 'number' && i >= 5) cell.numFmt = '#,##0.00'
+
       let style = dataStyle(alt)
       if (isClosure) {
-        style = { ...style, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } } }
+        style = {
+          ...style,
+          fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } },
+        }
+      }
+      if (i === 6 && typeof v === 'number') {
+        style = {
+          ...style,
+          font: {
+            ...style.font,
+            bold: true,
+            color: {
+              argb: v > 0 ? argb('#166534') : v < 0 ? argb('#991B1B') : argb(C.textSecondary),
+            },
+          },
+        }
+      }
+      if (i === 4) {
+        style = {
+          ...style,
+          alignment: { vertical: 'middle', horizontal: 'center' },
+          font: {
+            ...style.font,
+            bold: true,
+            color: {
+              argb: direction === 'increase' ? argb('#166534') : argb('#991B1B'),
+            },
+          },
+        }
       }
       cell.style = style
     })
+  }
+
+  if (sorted.length === 0) {
+    const emptyRow = ws.getRow(r++)
+    emptyRow.getCell(1).value = 'Sin ajustes de inventario en este período'
+    ws.mergeCells(r - 1, 1, r - 1, cols.length)
+  } else {
+    const lastDataRow = r - 1
+    ws.autoFilter = {
+      from: { row: headerRowIdx, column: 1 },
+      to: { row: lastDataRow, column: cols.length },
+    }
+
+    r++
+    const totRow = ws.getRow(r++)
+    totRow.height = 16
+    for (let i = 1; i <= cols.length; i++) {
+      totRow.getCell(i).style = totalStyle()
+    }
+    totRow.getCell(1).value = 'TOTALES DEL PERÍODO'
+    totRow.getCell(7).value = Number(totalNet.toFixed(4))
+    totRow.getCell(7).numFmt = '#,##0.00'
+    totRow.getCell(10).value = `Entradas: +${totalIn.toFixed(2)} kg · Salidas: −${totalOut.toFixed(2)} kg`
+    totRow.getCell(10).alignment = { vertical: 'middle', horizontal: 'left' }
   }
 }
 
@@ -941,7 +1083,9 @@ async function buildEvidenciasSheet(
   cols.forEach((c, i) => { const cell = hRow.getCell(i + 1); cell.value = c.header; cell.style = headerStyle() })
 
   let r = 3
-  const materialNameMap = new Map(detail.materials.map((m) => [m.material_id, m.material?.material_name ?? m.material_id]))
+  const materialNameMap = new Map(
+    detail.materials.map((m) => [m.material_id, formatClosureMaterialLabel(m.material, m.material_id)]),
+  )
   const maxImageWidth = 560
   const maxImageHeight = 400
 

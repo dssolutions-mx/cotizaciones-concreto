@@ -23,6 +23,10 @@ import { es } from 'date-fns/locale'
 import { ClipboardList, XCircle, FilePen, Download, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import {
+  buildInventoryClosureExportFileName,
+  filenameFromContentDisposition,
+} from '@/lib/reports/inventoryClosureExportFileName'
 import { cn } from '@/lib/utils'
 
 function formatClosurePeriodRange(start: string, end: string) {
@@ -265,7 +269,9 @@ export default function ClosureWizardPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `Preliminar_Inventario_${detail?.period_start}_${detail?.period_end}.xlsx`
+      a.download =
+        filenameFromContentDisposition(res.headers.get('Content-Disposition'))
+        ?? (detail ? buildInventoryClosureExportFileName(detail, true) : 'Preliminar_Inventario.xlsx')
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -397,7 +403,9 @@ export default function ClosureWizardPage() {
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
                   a.href = url
-                  a.download = `Cierre_Inventario_${detail.period_start}_${detail.period_end}.xlsx`
+                  a.download =
+                    filenameFromContentDisposition(res.headers.get('Content-Disposition'))
+                    ?? buildInventoryClosureExportFileName(detail)
                   document.body.appendChild(a)
                   a.click()
                   a.remove()

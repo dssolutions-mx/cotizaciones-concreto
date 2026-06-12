@@ -3,16 +3,20 @@
 import React, { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Download, CheckCircle2, ExternalLink } from 'lucide-react'
-import type { InventoryClosure } from '@/types/inventoryClosure'
+import type { InventoryClosureDetail } from '@/types/inventoryClosure'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
+import {
+  buildInventoryClosureExportFileName,
+  filenameFromContentDisposition,
+} from '@/lib/reports/inventoryClosureExportFileName'
 
 function fmtDate(d: string) {
   try { return format(parseISO(d), "d 'de' MMMM yyyy", { locale: es }) } catch { return d }
 }
 
 interface Props {
-  closure: InventoryClosure
+  closure: InventoryClosureDetail
 }
 
 export default function ExportStep({ closure }: Props) {
@@ -30,7 +34,9 @@ export default function ExportStep({ closure }: Props) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `Cierre_Inventario_${closure.period_start}_${closure.period_end}.xlsx`
+      a.download =
+        filenameFromContentDisposition(res.headers.get('Content-Disposition'))
+        ?? buildInventoryClosureExportFileName(closure)
       document.body.appendChild(a)
       a.click()
       a.remove()

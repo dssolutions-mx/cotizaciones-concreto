@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { InventoryClosureService } from '@/services/inventoryClosureService';
 import { buildInventoryClosureExcel } from '@/lib/reports/inventoryClosureExcel';
+import { buildInventoryClosureExportFileName } from '@/lib/reports/inventoryClosureExportFileName';
 import { createAdminClientForApi } from '@/lib/supabase/api';
 import {
   assertClosurePlantAccessForView,
@@ -54,8 +55,7 @@ export async function GET(
     const admin = createAdminClientForApi();
     const buffer = await buildInventoryClosureExcel(detail, admin, { preliminary });
 
-    const prefix = preliminary ? 'Preliminar' : 'Cierre';
-    const fileName = `${prefix}_Inventario_${detail.period_start}_${detail.period_end}.xlsx`;
+    const fileName = buildInventoryClosureExportFileName(detail, preliminary);
 
     if (!preliminary) {
       const storagePath = `${closureId}/exports/${fileName}`;
