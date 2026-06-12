@@ -9,7 +9,7 @@ import {
 } from '@/lib/hr/complianceFromRuns';
 import { fetchReassignmentNotesByRemisionNumbers } from '@/lib/hr/reassignmentNotes';
 import { normalizeRemisionFilterKey as normalizeKey } from '@/lib/hr/remisionFilterKeys';
-import { fetchWaterEntryCountsByPlantDay } from '@/lib/hr/waterEntries';
+import { fetchWaterEntriesForHr } from '@/lib/hr/waterEntries';
 
 type RemisionRow = {
   id: string;
@@ -589,13 +589,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let waterEntriesByPlant: Awaited<ReturnType<typeof fetchWaterEntryCountsByPlantDay>> = [];
+    let waterEntriesByPlant: Awaited<ReturnType<typeof fetchWaterEntriesForHr>>['byPlant'] = [];
+    let waterEntryRows: Awaited<ReturnType<typeof fetchWaterEntriesForHr>>['rows'] = [];
     try {
-      waterEntriesByPlant = await fetchWaterEntryCountsByPlantDay(service, {
+      const waterBundle = await fetchWaterEntriesForHr(service, {
         startDate,
         endDate,
         plantIds: effectivePlantIds.length > 0 ? effectivePlantIds : undefined,
       });
+      waterEntriesByPlant = waterBundle.byPlant;
+      waterEntryRows = waterBundle.rows;
     } catch (waterErr) {
       console.error('[HR API] water entries:', waterErr);
     }
@@ -734,6 +737,7 @@ export async function POST(request: NextRequest) {
         ),
       facets,
       waterEntriesByPlant,
+      waterEntryRows,
       ...(complianceByRemisionId
         ? {
             complianceByRemisionId,

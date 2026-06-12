@@ -36,7 +36,7 @@ export type EntityWeekGridProps = {
   totalRowLabel?: string;
   emptyMessage?: string;
   onDayClick?: (date: string) => void;
-  onEntityClick?: (name: string) => void;
+  onEntityClick?: (row: WeekGridEntityRow) => void;
   className?: string;
 };
 
@@ -166,13 +166,13 @@ export function EntityWeekGrid({
                         'px-4 py-3 border-r text-sm text-gray-900',
                         onEntityClick && 'cursor-pointer hover:bg-blue-50 hover:text-blue-700 transition-colors',
                       )}
-                      onClick={() => onEntityClick?.(row.name)}
+                      onClick={() => onEntityClick?.(row)}
                       role={onEntityClick ? 'button' : undefined}
                       tabIndex={onEntityClick ? 0 : undefined}
                       onKeyDown={(e) => {
                         if (onEntityClick && (e.key === 'Enter' || e.key === ' ')) {
                           e.preventDefault();
-                          onEntityClick(row.name);
+                          onEntityClick(row);
                         }
                       }}
                     >

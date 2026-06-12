@@ -27,6 +27,8 @@ export type EntryEvidencePanelProps = {
   /** Optional key to refetch (e.g. after upload elsewhere). */
   refreshKey?: number
   onDocumentCountChange?: (count: number) => void
+  /** Override documents API (e.g. RH water-entry-documents). */
+  documentsFetchUrl?: string
 }
 
 function guessKind(doc: InventoryDocument): 'image' | 'pdf' | 'csv' | 'other' {
@@ -91,6 +93,7 @@ export default function EntryEvidencePanel({
   className,
   refreshKey = 0,
   onDocumentCountChange,
+  documentsFetchUrl,
 }: EntryEvidencePanelProps) {
   const [documents, setDocuments] = useState<InventoryDocument[]>([])
   const [loading, setLoading] = useState(true)
@@ -103,7 +106,8 @@ export default function EntryEvidencePanel({
     setError(null)
     try {
       const response = await fetch(
-        `/api/inventory/documents?reference_id=${encodeURIComponent(entryId)}&type=entry`
+        documentsFetchUrl ??
+          `/api/inventory/documents?reference_id=${encodeURIComponent(entryId)}&type=entry`,
       )
       if (!response.ok) {
         const j = await response.json().catch(() => ({}))
@@ -120,7 +124,7 @@ export default function EntryEvidencePanel({
     } finally {
       setLoading(false)
     }
-  }, [entryId, onDocumentCountChange])
+  }, [entryId, onDocumentCountChange, documentsFetchUrl])
 
   useEffect(() => {
     void fetchDocuments()

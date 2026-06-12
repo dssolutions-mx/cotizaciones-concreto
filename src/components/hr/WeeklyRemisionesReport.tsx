@@ -33,7 +33,7 @@ import PayrollWeekGrid from '@/components/hr/PayrollWeekGrid';
 import UnitsWeekGrid from '@/components/hr/UnitsWeekGrid';
 import { UnitsSummaryTable } from '@/components/hr/UnitsSummaryTable';
 import { HrWeeklyCompliancePanel } from '@/components/hr/HrWeeklyCompliancePanel';
-import { EntityWeekGrid } from '@/components/hr/EntityWeekGrid';
+import { HrWaterEntriesPanel } from '@/components/hr/HrWaterEntriesPanel';
 import {
   fetchHrWeeklyRemisiones,
   type HrWeeklyRemisionRow,
@@ -135,7 +135,7 @@ export default function WeeklyRemisionesReport() {
     day: null,
   });
   const [activeTab, setActiveTab] = useState<
-    'resumen' | 'conductores' | 'unidades' | 'matriz' | 'detalle' | 'incidencias'
+    'resumen' | 'conductores' | 'unidades' | 'matriz' | 'detalle' | 'viajes-agua' | 'incidencias'
   >('resumen');
   const [complianceDialog, setComplianceDialog] = useState<{
     remisionId: string;
@@ -294,14 +294,27 @@ export default function WeeklyRemisionesReport() {
       .slice(0, 8);
   }, [data?.byUnit]);
 
-  const waterEntriesGridRows = useMemo(() => {
-    return (data?.waterEntriesByPlant ?? []).map((p) => ({
-      key: p.plant_id,
-      name: `${p.name} (${p.code})`,
-      trips: p.totalEntries,
-      dayMatrix: p.dayMatrix,
-    }));
-  }, [data?.waterEntriesByPlant]);
+  const waterEntryStats = useMemo(() => {
+    const rows = data?.waterEntryRows ?? [];
+    return {
+      total: rows.length,
+      missingEvidence: rows.filter((r) => r.document_count === 0).length,
+    };
+  }, [data?.waterEntryRows]);
+
+  const applyWaterPlant = (plantId: string) => {
+    setFilters((prev) => ({ ...prev, plantIds: [plantId] }));
+    setActiveTab('viajes-agua');
+  };
+
+  const applyWaterDay = (dateStr: string) => {
+    setFilters((prev) => ({ ...prev, day: dateStr }));
+    setActiveTab('viajes-agua');
+  };
+
+  const clearWaterFilters = () => {
+    setFilters((prev) => ({ ...prev, plantIds: [], day: null }));
+  };
 
   const handleThisWeek = () => {
     setDateRange(initialWeekRange());
@@ -461,8 +474,8 @@ export default function WeeklyRemisionesReport() {
             <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Recursos Humanos</h1>
             <p className="text-sm text-gray-600">
               Reporte semanal de remisiones de <span className="font-medium">concreto</span> y{' '}
-              <span className="font-medium">bombeo</span> (viajes) por conductor y unidad, para revisar el esquema de
-              bombeo junto a producción.
+              <span className="font-medium">bombeo</span> por conductor y unidad, más{' '}
+              <span className="font-medium">viajes de agua</span> (pipas) con folios y evidencia para nómina.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -673,12 +686,20 @@ export default function WeeklyRemisionesReport() {
           </div>
 
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 md:max-w-[1080px]">
+            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 lg:max-w-[1280px]">
               <TabsTrigger value="resumen">Resumen</TabsTrigger>
               <TabsTrigger value="conductores">Conductores</TabsTrigger>
               <TabsTrigger value="unidades">Unidades</TabsTrigger>
               <TabsTrigger value="matriz">Matriz</TabsTrigger>
               <TabsTrigger value="detalle">Detalle</TabsTrigger>
+              <TabsTrigger value="viajes-agua" className="gap-1.5">
+                Viajes agua
+                {waterEntryStats.total > 0 && (
+                  <Badge variant="secondary" className="h-5 px-1.5 text-[10px] tabular-nums">
+                    {waterEntryStats.total}
+                  </Badge>
+                )}
+              </TabsTrigger>
               <TabsTrigger value="incidencias">Incidencias</TabsTrigger>
             </TabsList>
 
@@ -822,16 +843,35 @@ export default function WeeklyRemisionesReport() {
                 </Card>
               </div>
 
-              <EntityWeekGrid
-                dateRange={dateRange}
-                title="Entradas de agua por planta"
-                description="Conteo de recepciones de material agua por día (ISO Lun–Dom)"
-                entityColumnLabel="Planta"
-                rows={waterEntriesGridRows}
-                countNoun={{ one: 'entrada', many: 'entradas' }}
-                totalRowLabel="Total entradas"
-                emptyMessage="No hubo entradas de agua en el período."
-              />
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg">Viajes de agua (pipas)</CardTitle>
+                  <CardDescription>
+                    Recepciones de material agua para revisar pago a pipas — folios, cantidad y evidencia
+                    adjunta.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-2xl font-semibold tabular-nums text-gray-900">
+                      {waterEntryStats.total.toLocaleString('es-MX')} viaje
+                      {waterEntryStats.total === 1 ? '' : 's'}
+                    </div>
+                    {waterEntryStats.missingEvidence > 0 ? (
+                      <p className="text-sm text-amber-800">
+                        {waterEntryStats.missingEvidence} sin evidencia adjunta — revisar antes de pagar.
+                      </p>
+                    ) : waterEntryStats.total > 0 ? (
+                      <p className="text-sm text-gray-600">Todas las entradas del período tienen al menos un archivo.</p>
+                    ) : (
+                      <p className="text-sm text-gray-500">No hubo entradas de agua en el período.</p>
+                    )}
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => setActiveTab('viajes-agua')}>
+                    Ver detalle y evidencia
+                  </Button>
+                </CardContent>
+              </Card>
 
               {data.byUnit && data.byUnit.length > 0 && (
                 <Card>
@@ -1053,6 +1093,20 @@ export default function WeeklyRemisionesReport() {
                 byDriver={data.byDriver}
                 onDayClick={applyDay}
                 onDriverClick={applyDriver}
+              />
+            </TabsContent>
+
+            <TabsContent value="viajes-agua" className="mt-4">
+              <HrWaterEntriesPanel
+                dateRange={dateRange}
+                rows={data.waterEntryRows ?? []}
+                byPlant={data.waterEntriesByPlant ?? []}
+                plantFilterIds={filters.plantIds}
+                dayFilter={filters.day}
+                search={debouncedSearch}
+                onPlantFilter={applyWaterPlant}
+                onDayFilter={applyWaterDay}
+                onClearWaterFilters={clearWaterFilters}
               />
             </TabsContent>
 

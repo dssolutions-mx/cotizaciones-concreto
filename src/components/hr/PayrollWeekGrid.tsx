@@ -64,7 +64,7 @@ export default function PayrollWeekGrid({
       entityColumnLabel="Conductor"
       rows={rows}
       onDayClick={onDayClick}
-      onEntityClick={onDriverClick}
+      onEntityClick={onDriverClick ? (row) => onDriverClick(row.name) : undefined}
     />
   );
 }

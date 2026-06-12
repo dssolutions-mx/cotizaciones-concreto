@@ -889,6 +889,102 @@ function buildWaterEntriesSheet(
   ws.properties.tabColor = { argb: argb(C.green) };
 }
 
+function formatWaterQtyExcel(row: NonNullable<HrWeeklyResponse['waterEntryRows']>[number]): string {
+  const uom = row.received_uom;
+  if (uom === 'l') {
+    const n = Number(row.received_qty_entered ?? row.quantity_received ?? 0);
+    return `${n} L`;
+  }
+  if (uom === 'm3') {
+    const n = Number(row.received_qty_entered ?? row.quantity_received ?? 0);
+    return `${n} m³`;
+  }
+  const n = Number(row.received_qty_kg ?? row.quantity_received ?? 0);
+  return `${n} kg`;
+}
+
+function buildWaterEntriesDetailSheet(
+  ws: ExcelJS.Worksheet,
+  wb: ExcelJS.Workbook,
+  data: HrWeeklyResponse,
+  opts: HrWeeklyExcelOptions,
+) {
+  const entries = data.waterEntryRows ?? [];
+  if (entries.length === 0) return;
+
+  const headers = [
+    'Fecha',
+    'Entrada',
+    'Folio material',
+    'Guía flete',
+    'Planta',
+    'Proveedor',
+    'Cantidad',
+    '# Evidencia',
+    'Notas',
+  ] as const;
+  const colCount = headers.length;
+  ws.columns = [
+    { width: 12 },
+    { width: 16 },
+    { width: 14 },
+    { width: 14 },
+    { width: 18 },
+    { width: 22 },
+    { width: 12 },
+    { width: 10 },
+    { width: 36 },
+  ];
+
+  const periodo = `${opts.startDate} — ${opts.endDate}`;
+  let r = applyTopBanner(ws, wb, colCount, 'RH — Detalle viajes de agua', [
+    ['Período', periodo],
+    ['Generado', format(opts.generatedAt, 'dd/MM/yyyy HH:mm')],
+    ['Registros', String(entries.length)],
+  ]);
+  ws.getRow(r).height = 6;
+  r++;
+
+  const headerRow = r;
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(r, i + 1);
+    cell.value = h;
+    Object.assign(cell, columnHeaderStyle());
+  });
+  r++;
+
+  const sorted = [...entries].sort(
+    (a, b) => b.entry_date.localeCompare(a.entry_date) || b.entry_number.localeCompare(a.entry_number),
+  );
+
+  sorted.forEach((row, idx) => {
+    const values: (string | number)[] = [
+      row.entry_date,
+      row.entry_number,
+      row.supplier_invoice ?? '',
+      row.fleet_invoice ?? '',
+      row.plant?.name ?? '',
+      row.supplier?.name ?? row.fleet_supplier?.name ?? '',
+      formatWaterQtyExcel(row),
+      row.document_count,
+      row.notes ?? '',
+    ];
+    values.forEach((val, ci) => {
+      const cell = ws.getCell(r, ci + 1);
+      cell.value = val;
+      Object.assign(cell, dataStyle(idx % 2 === 1));
+    });
+    r++;
+  });
+
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: headerRow, activeCell: 'A1' }];
+  ws.autoFilter = {
+    from: { row: headerRow, column: 1 },
+    to: { row: headerRow, column: colCount },
+  };
+  ws.properties.tabColor = { argb: argb(C.green) };
+}
+
 /**
  * Full RH weekly workbook: resumen → conductores → unidades → incidencias → reasignaciones → detalle.
  */
@@ -932,6 +1028,16 @@ export async function buildHrWeeklyRemisionesExcel(
   if ((data.waterEntriesByPlant ?? []).length > 0) {
     buildWaterEntriesSheet(
       wb.addWorksheet('Entradas agua', { pageSetup: { fitToPage: true, orientation: 'landscape' } }),
+      wb,
+      data,
+      opts,
+    );
+  }
+  if ((data.waterEntryRows ?? []).length > 0) {
+    buildWaterEntriesDetailSheet(
+      wb.addWorksheet('Viajes agua detalle', {
+        pageSetup: { fitToPage: true, orientation: 'landscape' },
+      }),
       wb,
       data,
       opts,

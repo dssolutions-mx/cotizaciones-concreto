@@ -44,7 +44,7 @@ export default function UnitsWeekGrid({
       entityColumnLabel="Unidad"
       rows={rows}
       onDayClick={onDayClick}
-      onEntityClick={onUnitClick}
+      onEntityClick={onUnitClick ? (row) => onUnitClick(row.name) : undefined}
     />
   );
 }
