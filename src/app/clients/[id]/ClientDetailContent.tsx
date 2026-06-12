@@ -2232,7 +2232,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
 
             <TabsContent value="adjustments" className="mt-0">
               <div className={cn(commercialPanelClass)}>
-                <BalanceAdjustmentHistory clientId={clientId} />
+                <BalanceAdjustmentHistory clientId={clientId} onMutated={loadData} />
               </div>
             </TabsContent>
 
